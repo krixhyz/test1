@@ -68,12 +68,26 @@ function StaffManagement() {
   useEffect(() => { api.getStaff().then(setStaff).finally(() => setLoading(false)); }, []);
   const filtered = staff.filter(s => [s.fullName,s.email,s.phone,s.position].some(v => v?.toLowerCase().includes(search.toLowerCase())));
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
-  const validate = () => { const e={}; if(!form.fullName) e.fullName='Required'; if(!form.email) e.email='Required'; if(!form.phone) e.phone='Required'; if(!form.position) e.position='Required'; return e; };
-  const handleSave = () => {
+  const validate = () => { const e={}; if(!form.fullName) e.fullName='Required'; if(!form.email) e.email='Required'; if(!form.phone) e.phone='Required'; return e; };
+  const handleSave = async () => {
     const e = validate(); if(Object.keys(e).length){setErrors(e);return;}
-    if(editing) { setStaff(s=>s.map(x=>x.id===editing.id?{...x,...form}:x)); show('Staff updated'); }
-    else { setStaff(s=>[...s,{...form,id:Date.now(),joinedDate:new Date().toISOString().split('T')[0]}]); show('Staff added'); }
-    setModal(false);
+    try {
+      if(editing) {
+        await api.updateStaff(editing.id, { fullName: form.fullName, phone: form.phone });
+        show('Staff updated');
+      } else {
+        await api.createStaff({ fullName: form.fullName, email: form.email, phone: form.phone, password: 'Staff@123' });
+        show('Staff added (default password: Staff@123)');
+      }
+      const fresh = await api.getStaff();
+      setStaff(fresh);
+      setModal(false);
+      setEditing(null);
+      setForm(empty);
+      setErrors({});
+    } catch {
+      show('Failed to save staff','error');
+    }
   };
   const cols = [
     {label:'Name',key:'fullName'},
@@ -105,7 +119,18 @@ function StaffManagement() {
       </Modal>
       <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Change Status"
         message={`${confirm?.status==='Active'?'Deactivate':'Activate'} ${confirm?.fullName}?`}
-        onConfirm={()=>{setStaff(p=>p.map(x=>x.id===confirm.id?{...x,status:x.status==='Active'?'Inactive':'Active'}:x));show('Status updated');setConfirm(null);}}/>
+        onConfirm={async()=>{
+          if (!confirm) return;
+          try {
+            await api.toggleStaffStatus(confirm.id);
+            const fresh = await api.getStaff();
+            setStaff(fresh);
+            show('Status updated');
+          } catch {
+            show('Failed to update status','error');
+          }
+          setConfirm(null);
+        }}/>
     </AdminLayout>
   );
 }
@@ -121,7 +146,35 @@ function VendorManagement() {
   const filtered=vendors.filter(v=>[v.vendorName,v.contactPerson,v.phone].some(x=>x?.toLowerCase().includes(search.toLowerCase())));
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
   const validate=()=>{const e={};if(!form.vendorName)e.vendorName='Required';if(!form.phone)e.phone='Required';return e;};
-  const handleSave=()=>{const e=validate();if(Object.keys(e).length){setErrors(e);return;}if(editing){setVendors(v=>v.map(x=>x.id===editing.id?{...x,...form}:x));show('Vendor updated');}else{setVendors(v=>[...v,{...form,id:Date.now()}]);show('Vendor added');}setModal(false);};
+  const handleSave=async()=>{
+    const e=validate();
+    if(Object.keys(e).length){setErrors(e);return;}
+    const payload = {
+      vendorName: form.vendorName,
+      contactPerson: form.contactPerson || null,
+      phone: form.phone,
+      email: form.email || null,
+      address: form.address || null,
+      isActive: form.status === 'Active',
+    };
+    try {
+      if(editing){
+        await api.updateVendor(editing.id, payload);
+        show('Vendor updated');
+      }else{
+        await api.createVendor(payload);
+        show('Vendor added');
+      }
+      const fresh = await api.getVendors();
+      setVendors(fresh);
+      setModal(false);
+      setEditing(null);
+      setForm(empty);
+      setErrors({});
+    } catch {
+      show('Failed to save vendor','error');
+    }
+  };
   const cols=[
     {label:'Vendor Name',key:'vendorName'},{label:'Contact Person',key:'contactPerson'},
     {label:'Phone',key:'phone'},{label:'Email',key:'email'},
@@ -145,7 +198,18 @@ function VendorManagement() {
         <FormRow><Input label="Email" type="email" value={form.email} onChange={set('email')} placeholder="vendor@email.com"/><Select label="Status" value={form.status} onChange={set('status')}><option>Active</option><option>Inactive</option></Select></FormRow>
         <Input label="Address" value={form.address} onChange={set('address')} placeholder="Street, City"/>
       </Modal>
-      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Vendor" message={`Remove vendor "${confirm?.vendorName}"? This cannot be undone.`} onConfirm={()=>{setVendors(p=>p.filter(x=>x.id!==confirm.id));show('Vendor removed');setConfirm(null);}}/>
+      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Vendor" message={`Remove vendor "${confirm?.vendorName}"? This cannot be undone.`} onConfirm={async()=>{
+        if (!confirm) return;
+        try {
+          await api.deleteVendor(confirm.id);
+          const fresh = await api.getVendors();
+          setVendors(fresh);
+          show('Vendor removed');
+        } catch {
+          show('Failed to remove vendor','error');
+        }
+        setConfirm(null);
+      }}/>
     </AdminLayout>
   );
 }
@@ -162,7 +226,36 @@ function PartsManagement() {
   const filtered=parts.filter(p=>{const ms=[p.partName,p.partCode,p.category].some(v=>v?.toLowerCase().includes(search.toLowerCase()));const mc=!filterCat||p.category===filterCat;return ms&&mc;});
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
   const validate=()=>{const e={};if(!form.partName)e.partName='Required';if(!form.partCode)e.partCode='Required';if(!form.category)e.category='Required';if(!form.unitPrice||form.unitPrice<0)e.unitPrice='Must be ≥ 0';if(form.stockQty===''||form.stockQty<0)e.stockQty='Must be ≥ 0';return e;};
-  const handleSave=()=>{const e=validate();if(Object.keys(e).length){setErrors(e);return;}const vendor=vendors.find(v=>v.id==form.vendorId);const data={...form,unitPrice:parseFloat(form.unitPrice),stockQty:parseInt(form.stockQty),reorderLevel:parseInt(form.reorderLevel)||10,vendorName:vendor?.vendorName||''};if(editing){setParts(p=>p.map(x=>x.id===editing.id?{...x,...data}:x));show('Part updated');}else{setParts(p=>[...p,{...data,id:Date.now()}]);show('Part added');}setModal(false);};
+  const handleSave=async()=>{
+    const e=validate();
+    if(Object.keys(e).length){setErrors(e);return;}
+    const payload = {
+      partName: form.partName,
+      partCode: form.partCode,
+      category: form.category,
+      unitPrice: parseFloat(form.unitPrice),
+      stockQuantity: parseInt(form.stockQty),
+      reorderLevel: parseInt(form.reorderLevel) || 10,
+      vendorId: form.vendorId || null,
+    };
+    try {
+      if(editing){
+        await api.updatePart(editing.id, payload);
+        show('Part updated');
+      }else{
+        await api.createPart(payload);
+        show('Part added');
+      }
+      const fresh = await api.getParts();
+      setParts(fresh);
+      setModal(false);
+      setEditing(null);
+      setForm(empty);
+      setErrors({});
+    } catch {
+      show('Failed to save part','error');
+    }
+  };
   const cols=[
     {label:'Part',render:p=><div><div className="vp-fw6">{p.partName}</div><div className="vp-text-sm vp-tx3">{p.partCode}</div></div>},
     {label:'Category',key:'category'},
@@ -196,7 +289,18 @@ function PartsManagement() {
         <FormRow><Input label="Reorder Level" type="number" value={form.reorderLevel} onChange={set('reorderLevel')} min="0"/><Select label="Status" value={form.status} onChange={set('status')}><option>Active</option><option>Inactive</option></Select></FormRow>
         <Textarea label="Description" value={form.description} onChange={set('description')} placeholder="Part description..."/>
       </Modal>
-      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Part" message={`Delete "${confirm?.partName}"?`} onConfirm={()=>{setParts(p=>p.filter(x=>x.id!==confirm.id));show('Part deleted');setConfirm(null);}}/>
+      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Part" message={`Delete "${confirm?.partName}"?`} onConfirm={async()=>{
+        if (!confirm) return;
+        try {
+          await api.deletePart(confirm.id);
+          const fresh = await api.getParts();
+          setParts(fresh);
+          show('Part deleted');
+        } catch {
+          show('Failed to delete part','error');
+        }
+        setConfirm(null);
+      }}/>
     </AdminLayout>
   );
 }
@@ -212,7 +316,29 @@ function PurchaseInvoices() {
   const setItem=(i,k,v)=>setItems(rows=>rows.map((r,idx)=>{if(idx!==i)return r;const u={...r,[k]:v};if(k==='partId'){const p=parts.find(p=>p.id==v);if(p)u.unitCost=p.unitPrice;}return u;}));
   const lineTotal=item=>parseFloat(item.quantity||0)*parseFloat(item.unitCost||0);
   const grandTotal=items.reduce((s,i)=>s+lineTotal(i),0);
-  const handleSave=()=>{const vendor=vendors.find(v=>v.id==form.vendorId);if(!vendor){show('Select a vendor','error');return;}if(!items.some(i=>i.partId)){show('Add at least one part','error');return;}setInvoices(prev=>[{id:Date.now(),invoiceNumber:`PUR-2024-00${invoices.length+4}`,vendorId:form.vendorId,vendorName:vendor.vendorName,date:form.invoiceDate,totalAmount:grandTotal,notes:form.notes},...prev]);setModal(false);setForm(emptyForm);setItems([{partId:'',quantity:1,unitCost:''}]);show('Purchase invoice created');};
+  const handleSave=async()=>{
+    const vendor=vendors.find(v=>v.id==form.vendorId);
+    if(!vendor){show('Select a vendor','error');return;}
+    if(!items.some(i=>i.partId)){show('Add at least one part','error');return;}
+    try {
+      await api.createPurchaseInvoice({
+        vendorId: form.vendorId,
+        notes: form.notes || '',
+        items: items
+          .filter(i => i.partId)
+          .map(i => ({ partId: i.partId, quantity: parseInt(i.quantity), unitCost: parseFloat(i.unitCost) || 0 })),
+      });
+      const [inv, p] = await Promise.all([api.getPurchaseInvoices(), api.getParts()]);
+      setInvoices(inv);
+      setParts(p);
+      setModal(false);
+      setForm(emptyForm);
+      setItems([{partId:'',quantity:1,unitCost:''}]);
+      show('Purchase invoice created');
+    } catch {
+      show('Failed to create purchase invoice','error');
+    }
+  };
   const cols=[{label:'Invoice #',key:'invoiceNumber'},{label:'Vendor',key:'vendorName'},{label:'Date',render:i=>formatDate(i.date)},{label:'Total Amount',render:i=><span className="vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Notes',render:i=>i.notes||'—'}];
   return (
     <AdminLayout title="Purchase Invoices">
@@ -308,12 +434,26 @@ function LowStockAlerts() {
 function AdminNotifications() {
   const [notifications,setNotifications]=useState([]); const [loading,setLoading]=useState(true);
   useEffect(()=>{api.getNotifications().then(setNotifications).finally(()=>setLoading(false));}, []);
-  const markRead=id=>setNotifications(n=>n.map(x=>x.id===id?{...x,read:true}:x));
+  const markRead=async(id)=>{
+    try {
+      await api.markNotificationRead(id);
+      const fresh = await api.getNotifications();
+      setNotifications(fresh);
+    } catch {
+      // Keep UI responsive even if API fails
+      setNotifications(n=>n.map(x=>x.id===id?{...x,read:true}:x));
+    }
+  };
   const typeColors={'Low Stock':'yellow','Credit Reminder':'orange','General':'blue'};
   return (
     <AdminLayout title="Notifications">
       <PageHeader title="Notifications" subtitle={`${notifications.filter(n=>!n.read).length} unread`}
-        action={<Button variant="ghost" size="sm" onClick={()=>setNotifications(n=>n.map(x=>({...x,read:true})))}>Mark all read</Button>}/>
+        action={<Button variant="ghost" size="sm" onClick={async()=>{
+          const unread = notifications.filter(n=>!n.read);
+          for (const n of unread) {
+            await markRead(n.id);
+          }
+        }}>Mark all read</Button>}/>
       <Card>
         {loading?<Loader/>:notifications.length===0?<EmptyState message="No notifications"/>:(
           <div className="vp-notif-full-list">

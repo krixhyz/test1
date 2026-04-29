@@ -42,7 +42,7 @@ const routes = {
 // Dynamic customer detail route matcher
 function matchRoute(path) {
   if (routes[path]) return routes[path];
-  if (/^\/staff\/customers\/\d+$/.test(path)) return () => <ProtectedRoute allowedRoles={['Staff']}><CustomerDetails /></ProtectedRoute>;
+  if (/^\/staff\/customers\/[^/]+$/.test(path)) return () => <ProtectedRoute allowedRoles={['Staff']}><CustomerDetails /></ProtectedRoute>;
   return null;
 }
 

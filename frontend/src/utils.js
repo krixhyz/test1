@@ -49,6 +49,7 @@ const DEMO = {
 const unwrap = (res) => res.data?.data ?? res.data;
 const safe = (promise) => promise.catch(() => ({ data: { data: [] } }));
 const safeObj = (promise) => promise.catch(() => ({ data: { data: {} } }));
+const toBoolStatus = (isActive) => (isActive ? 'Active' : 'Inactive');
 
 // ── Real API layer — calls ASP.NET Core backend ───────────────
 const api = {
@@ -57,7 +58,7 @@ const api = {
     const res = await axiosClient.post('/auth/login', { email, password });
     const d = unwrap(res);
     if (!d?.token) throw new Error(res.data?.message || 'Login failed');
-    return { token: d.token, role: d.role, fullName: d.fullName, userId: d.userId };
+    return { token: d.token, role: d.role, fullName: d.fullName, userId: d.userId, customerId: d.customerId ?? null };
   },
 
   register: async (form) => {
@@ -72,24 +73,83 @@ const api = {
   },
 
   // Staff
-  getStaff: async () => { const res = await safe(axiosClient.get('/staff')); return unwrap(res) ?? []; },
+  getStaff: async () => {
+    const res = await safe(axiosClient.get('/staff'));
+    const list = unwrap(res) ?? [];
+    return list.map(s => ({
+      id: s.id,
+      fullName: s.fullName ?? '',
+      email: s.email ?? '',
+      phone: s.phoneNumber ?? '',
+      position: s.position ?? 'Staff',
+      status: toBoolStatus(s.isActive ?? true),
+      joinedDate: s.createdAt ?? null,
+      isActive: s.isActive ?? true,
+    }));
+  },
   createStaff: async (data) => { const res = await axiosClient.post('/staff', data); return unwrap(res); },
   updateStaff: async (id, data) => { const res = await axiosClient.put(`/staff/${id}`, data); return unwrap(res); },
   deleteStaff: async (id) => axiosClient.delete(`/staff/${id}`),
   toggleStaffStatus: async (id) => { const res = await axiosClient.patch(`/staff/${id}/status`); return unwrap(res); },
 
   // Vendors
-  getVendors: async () => { const res = await safe(axiosClient.get('/vendors')); return unwrap(res) ?? []; },
+  getVendors: async () => {
+    const res = await safe(axiosClient.get('/vendors'));
+    const list = unwrap(res) ?? [];
+    return list.map(v => ({
+      id: v.id,
+      vendorName: v.vendorName ?? '',
+      contactPerson: v.contactPerson ?? '',
+      phone: v.phone ?? '',
+      email: v.email ?? '',
+      address: v.address ?? '',
+      status: toBoolStatus(v.isActive ?? true),
+      isActive: v.isActive ?? true,
+    }));
+  },
   createVendor: async (data) => { const res = await axiosClient.post('/vendors', data); return unwrap(res); },
   updateVendor: async (id, data) => { const res = await axiosClient.put(`/vendors/${id}`, data); return unwrap(res); },
   deleteVendor: async (id) => axiosClient.delete(`/vendors/${id}`),
 
   // Parts
-  getParts: async () => { const res = await safe(axiosClient.get('/parts')); return unwrap(res) ?? []; },
+  getParts: async () => {
+    const res = await safe(axiosClient.get('/parts'));
+    const list = unwrap(res) ?? [];
+    return list.map(p => ({
+      id: p.id,
+      partName: p.partName ?? '',
+      partCode: p.partCode ?? '',
+      category: p.category ?? '',
+      description: p.description ?? '',
+      unitPrice: p.unitPrice ?? 0,
+      stockQty: p.stockQuantity ?? 0,
+      stockQuantity: p.stockQuantity ?? 0,
+      reorderLevel: p.reorderLevel ?? 10,
+      vendorId: p.vendorId ?? '',
+      vendorName: p.vendor?.vendorName ?? p.vendorName ?? '',
+      status: 'Active',
+    }));
+  },
   createPart: async (data) => { const res = await axiosClient.post('/parts', data); return unwrap(res); },
   updatePart: async (id, data) => { const res = await axiosClient.put(`/parts/${id}`, data); return unwrap(res); },
   deletePart: async (id) => axiosClient.delete(`/parts/${id}`),
-  getLowStockParts: async () => { const res = await safe(axiosClient.get('/parts/low-stock')); return unwrap(res) ?? []; },
+  getLowStockParts: async () => {
+    const res = await safe(axiosClient.get('/parts/low-stock'));
+    const list = unwrap(res) ?? [];
+    return list.map(p => ({
+      id: p.id,
+      partName: p.partName ?? '',
+      partCode: p.partCode ?? '',
+      category: p.category ?? '',
+      unitPrice: p.unitPrice ?? 0,
+      stockQty: p.stockQuantity ?? 0,
+      stockQuantity: p.stockQuantity ?? 0,
+      reorderLevel: p.reorderLevel ?? 10,
+      vendorId: p.vendorId ?? '',
+      vendorName: p.vendor?.vendorName ?? p.vendorName ?? '',
+      status: 'Active',
+    }));
+  },
 
   // Customers
   getCustomers: async () => {
@@ -99,6 +159,11 @@ const api = {
       phone: c.user?.phoneNumber ?? '', address: c.address ?? '',
       creditBalance: c.creditBalance ?? 0, vehicles: c.vehicles ?? [],
     }));
+  },
+
+  getMyCustomer: async () => {
+    const res = await safeObj(axiosClient.get('/customers/me'));
+    return unwrap(res) ?? null;
   },
 
   createCustomer: async (data) => { const res = await axiosClient.post('/customers', data); return unwrap(res); },
@@ -124,6 +189,8 @@ const api = {
   },
 
   addVehicle: async (customerId, data) => { const res = await axiosClient.post(`/customers/${customerId}/vehicles`, data); return unwrap(res); },
+  updateVehicle: async (customerId, vehicleId, data) => { const res = await axiosClient.put(`/customers/${customerId}/vehicles/${vehicleId}`, data); return unwrap(res); },
+  deleteVehicle: async (customerId, vehicleId) => axiosClient.delete(`/customers/${customerId}/vehicles/${vehicleId}`),
   getCustomerHistory: async (customerId) => {
     const res = await safe(axiosClient.get(`/customers/${customerId}/history`));
     const d = unwrap(res) ?? {};
@@ -132,26 +199,70 @@ const api = {
   getCustomerCreditSummary: async (customerId) => { const res = await safe(axiosClient.get(`/customers/${customerId}/credit-summary`)); return unwrap(res) ?? {}; },
 
   // Sales Invoices
-  getSalesInvoices: async () => { const res = await safe(axiosClient.get('/salesinvoices')); return unwrap(res) ?? []; },
+  getSalesInvoices: async () => {
+    const res = await safe(axiosClient.get('/salesinvoices'));
+    const list = unwrap(res) ?? [];
+    return list.map(i => ({
+      ...i,
+      customerName: i.customer?.user?.fullName ?? i.customerName ?? 'Unknown',
+      staffName: i.staff?.fullName ?? i.staffName ?? '',
+      date: i.date,
+      emailSent: i.emailSent ?? false,
+    }));
+  },
   createSalesInvoice: async (data) => { const res = await axiosClient.post('/salesinvoices', data); return unwrap(res); },
   getCustomerInvoices: async (customerId) => { const res = await safe(axiosClient.get(`/salesinvoices/customer/${customerId}`)); return unwrap(res) ?? []; },
 
   // Purchase Invoices
-  getPurchaseInvoices: async () => { const res = await safe(axiosClient.get('/purchaseinvoices')); return unwrap(res) ?? []; },
+  getPurchaseInvoices: async () => {
+    const res = await safe(axiosClient.get('/purchaseinvoices'));
+    const list = unwrap(res) ?? [];
+    return list.map(i => ({
+      ...i,
+      vendorName: i.vendor?.vendorName ?? i.vendorName ?? '',
+      date: i.date,
+    }));
+  },
   createPurchaseInvoice: async (data) => { const res = await axiosClient.post('/purchaseinvoices', data); return unwrap(res); },
 
   // Appointments
-  getAppointments: async () => { const res = await safe(axiosClient.get('/appointments')); return unwrap(res) ?? []; },
+  getAppointments: async () => {
+    const res = await safe(axiosClient.get('/appointments'));
+    const list = unwrap(res) ?? [];
+    return list.map(a => ({
+      ...a,
+      customerName: a.customer?.user?.fullName ?? a.customerName ?? '',
+      vehicleNumber: a.vehicle?.vehicleNumber ?? a.vehicleNumber ?? '',
+      date: a.appointmentDate ?? a.date,
+    }));
+  },
   createAppointment: async (data) => { const res = await axiosClient.post('/appointments', data); return unwrap(res); },
   updateAppointmentStatus: async (id, status) => axiosClient.patch(`/appointments/${id}/status`, JSON.stringify(status), { headers: { 'Content-Type': 'application/json' } }),
 
   // Part Requests
-  getPartRequests: async () => { const res = await safe(axiosClient.get('/unavailablepartrequests')); return unwrap(res) ?? []; },
+  getPartRequests: async () => {
+    const res = await safe(axiosClient.get('/unavailablepartrequests'));
+    const list = unwrap(res) ?? [];
+    return list.map(r => ({
+      ...r,
+      customerName: r.customer?.user?.fullName ?? r.customerName ?? '',
+      vehicleNumber: r.vehicle?.vehicleNumber ?? r.vehicleNumber ?? '—',
+      date: r.requestDate ?? r.date,
+    }));
+  },
   createPartRequest: async (data) => { const res = await axiosClient.post('/unavailablepartrequests', data); return unwrap(res); },
   updatePartRequestStatus: async (id, status) => axiosClient.patch(`/unavailablepartrequests/${id}/status`, JSON.stringify(status), { headers: { 'Content-Type': 'application/json' } }),
 
   // Reviews
-  getReviews: async () => { const res = await safe(axiosClient.get('/reviews')); return unwrap(res) ?? []; },
+  getReviews: async () => {
+    const res = await safe(axiosClient.get('/reviews'));
+    const list = unwrap(res) ?? [];
+    return list.map(r => ({
+      ...r,
+      customerName: r.customer?.user?.fullName ?? r.customerName ?? '',
+      date: r.date,
+    }));
+  },
   getCustomerReviews: async (customerId) => { const res = await safe(axiosClient.get(`/reviews/customer/${customerId}`)); return unwrap(res) ?? []; },
   createReview: async (data) => { const res = await axiosClient.post('/reviews', data); return unwrap(res); },
 

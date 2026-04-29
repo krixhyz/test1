@@ -55,7 +55,36 @@ function CustomerRegistration() {
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
   const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';if(!form.vehicleNumber)e.vehicleNumber='Required';return e;};
-  const handleSubmit=async e=>{e.preventDefault();const errs=validate();if(Object.keys(errs).length){setErrors(errs);return;}setLoading(true);await new Promise(r=>setTimeout(r,400));show('Customer registered successfully');setForm({fullName:'',email:'',phone:'',address:'',vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});setErrors({});setLoading(false);};
+  const handleSubmit=async e=>{
+    e.preventDefault();
+    const errs=validate();
+    if(Object.keys(errs).length){setErrors(errs);return;}
+    setLoading(true);
+    try {
+      const created = await api.createCustomer({
+        fullName: form.fullName,
+        phone: form.phone,
+        email: form.email || null,
+        address: form.address || null,
+      });
+      const customerId = created?.id;
+      if (customerId) {
+        await api.addVehicle(customerId, {
+          vehicleNumber: form.vehicleNumber,
+          vehicleType: form.vehicleType,
+          brand: form.vehicleBrand || 'Unknown',
+          model: form.vehicleModel || '',
+        });
+      }
+      show('Customer registered successfully');
+      setForm({fullName:'',email:'',phone:'',address:'',vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});
+      setErrors({});
+    } catch {
+      show('Failed to register customer','error');
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <StaffLayout title="Register Customer">
       {Toast}
@@ -112,7 +141,17 @@ function CustomerSearch() {
 function CustomerDetails() {
   const [customer,setCustomer]=useState(null); const [vehicles,setVehicles]=useState([]); const [history,setHistory]=useState({purchases:[],appointments:[]});
   const [loading,setLoading]=useState(true); const [tab,setTab]=useState('info');
-  useEffect(()=>{const path=getPath();const id=parseInt(path.split('/').pop());Promise.all([api.getCustomers(),api.getVehicles(id),api.getCustomerHistory(id)]).then(([customers,v,h])=>{setCustomer(customers.find(c=>c.id===id)||null);setVehicles(v);setHistory(h);}).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    const path=getPath();
+    const id=path.split('/').pop();
+    Promise.all([api.getCustomers(),api.getVehicles(id),api.getCustomerHistory(id)])
+      .then(([customers,v,h])=>{
+        setCustomer(customers.find(c=>c.id===id)||null);
+        setVehicles(v);
+        setHistory(h);
+      })
+      .finally(()=>setLoading(false));
+  }, []);
   if(loading) return <StaffLayout title="Customer Details"><Loader/></StaffLayout>;
   if(!customer) return <StaffLayout title="Customer Details"><Alert type="error" message="Customer not found."/></StaffLayout>;
   return (
@@ -142,7 +181,35 @@ function PartsSale() {
   const subtotal=items.reduce((s,i)=>s+(i.lineTotal||0),0);
   const discount=subtotal>5000?subtotal*0.1:0;
   const finalTotal=subtotal-discount;
-  const handleSubmit=()=>{if(!customerId){show('Select a customer','error');return;}if(!items.some(i=>i.partId)){show('Add at least one part','error');return;}const over=items.find(i=>i.partId&&parseInt(i.quantity)>i.availableStock);if(over){show(`Insufficient stock for: ${over.partName}`,'error');return;}if((paymentStatus==='Credit'||paymentStatus==='Partial')&&!creditDueDate){show('Credit due date is required','error');return;}const customer=customers.find(c=>c.id==customerId);setSuccessInvoice({invoiceNumber:`INV-2024-00${Math.floor(Math.random()*900)+100}`,customerName:customer?.fullName,subtotal,discount,finalTotal,paymentStatus,date:new Date().toLocaleDateString()});};
+  const handleSubmit=async()=>{
+    if(!customerId){show('Select a customer','error');return;}
+    if(!items.some(i=>i.partId)){show('Add at least one part','error');return;}
+    const over=items.find(i=>i.partId&&parseInt(i.quantity)>i.availableStock);
+    if(over){show(`Insufficient stock for: ${over.partName}`,'error');return;}
+    if((paymentStatus==='Credit'||paymentStatus==='Partial')&&!creditDueDate){show('Credit due date is required','error');return;}
+    try {
+      const created = await api.createSalesInvoice({
+        customerId,
+        paymentStatus,
+        creditDueDate: creditDueDate ? new Date(`${creditDueDate}T00:00:00`).toISOString() : null,
+        items: items.filter(i=>i.partId).map(i => ({ partId: i.partId, quantity: parseInt(i.quantity) })),
+      });
+      const customer=customers.find(c=>c.id==customerId);
+      setSuccessInvoice({
+        invoiceNumber: created.invoiceNumber,
+        customerName: customer?.fullName,
+        subtotal: created.subtotal,
+        discount: created.discount,
+        finalTotal: created.totalAmount,
+        paymentStatus: created.paymentStatus,
+        date: new Date(created.date || Date.now()).toLocaleDateString(),
+      });
+      const latestParts = await api.getParts();
+      setParts(latestParts);
+    } catch {
+      show('Failed to complete sale','error');
+    }
+  };
   if(loading) return <StaffLayout title="New Sale"><Loader/></StaffLayout>;
   if(successInvoice) return (
     <StaffLayout title="Invoice Generated">

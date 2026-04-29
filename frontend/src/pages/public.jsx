@@ -18,7 +18,7 @@ function Login() {
     setLoading(true);
     try {
       const data = await api.login(email, password);
-      auth.setAuth({ fullName: data.fullName, role: data.role, userId: data.userId }, data.token);
+      auth.setAuth({ fullName: data.fullName, role: data.role, userId: data.userId, customerId: data.customerId }, data.token);
       const map = { Admin:'/admin/dashboard', Staff:'/staff/dashboard', Customer:'/customer/dashboard' };
       navigate(map[data.role] || '/login');
       window.location.reload();

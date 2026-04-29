@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -49,11 +50,20 @@ public class AuthService : IAuthService {
             signingCredentials: creds
         );
 
+        Guid? customerId = null;
+        if (role == "Customer") {
+            customerId = await _db.Customers.AsNoTracking()
+                .Where(c => c.UserId == user.Id)
+                .Select(c => (Guid?)c.Id)
+                .FirstOrDefaultAsync();
+        }
+
         return ApiResponse<object>.Ok(new {
             Token = new JwtSecurityTokenHandler().WriteToken(token),
             Role = role,
             FullName = user.FullName,
-            UserId = user.Id
+            UserId = user.Id,
+            CustomerId = customerId
         });
     }
 
@@ -69,7 +79,7 @@ public class AuthService : IAuthService {
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync();
 
-        return ApiResponse<object>.Ok(new { UserId = user.Id });
+        return ApiResponse<object>.Ok(new { UserId = user.Id, CustomerId = customer.Id });
     }
 
     public async Task SeedRolesAndAdminAsync() {

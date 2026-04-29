@@ -4,13 +4,53 @@ import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTim
 // ── Customer Pages ─────────────────────────────────────────────
 import React, { useState, useEffect  } from 'react';
 
+function useCustomerContext() {
+  const [customerId, setCustomerId] = useState(auth.getUser()?.customerId || null);
+  const [loadingCustomer, setLoadingCustomer] = useState(!customerId);
+  const [customerMissing, setCustomerMissing] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    if (customerId) {
+      setLoadingCustomer(false);
+      return;
+    }
+    api.getMyCustomer()
+      .then((customer) => {
+        if (!mounted) return;
+        if (!customer?.id) {
+          setCustomerMissing(true);
+          return;
+        }
+        setCustomerId(customer.id);
+        setCustomerMissing(false);
+        const user = auth.getUser();
+        const token = auth.getToken();
+        if (user && token) auth.setAuth({ ...user, customerId: customer.id }, token);
+      })
+      .finally(() => {
+        if (mounted) setLoadingCustomer(false);
+      });
+    return () => { mounted = false; };
+  }, [customerId]);
+
+  return { customerId, loadingCustomer, customerMissing };
+}
+
 function CustomerDashboard() {
   const user = auth.getUser();
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [data,setData]=useState({vehicles:[],purchases:[],appointments:[]});
   const [predictions,setPredictions]=useState([]);
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{Promise.all([api.getCustomerHistory(1),api.getVehicles(1),api.getPredictions(1)]).then(([h,v,p])=>{setData({...h,vehicles:v});setPredictions(p.slice(0,2));}).finally(()=>setLoading(false));}, []);
-  if(loading) return <CustomerLayout title="Dashboard"><Loader/></CustomerLayout>;
+  useEffect(()=>{
+    if (!customerId) return;
+    Promise.all([api.getCustomerHistory(customerId),api.getVehicles(customerId),api.getPredictions(customerId)])
+      .then(([h,v,p])=>{setData({...h,vehicles:v});setPredictions(p.slice(0,2));})
+      .finally(()=>setLoading(false));
+  }, [customerId]);
+  if(loading || loadingCustomer) return <CustomerLayout title="Dashboard"><Loader/></CustomerLayout>;
+  if(customerMissing) return <CustomerLayout title="Dashboard"><Alert type="error" message="Customer profile not found for this account."/></CustomerLayout>;
   return (
     <CustomerLayout title="Dashboard">
       <PageHeader title={`Welcome, ${user?.fullName||'Customer'}`} subtitle="Your account overview"/>
@@ -63,16 +103,58 @@ function CustomerDashboard() {
 }
 
 function CustomerProfile() {
-  const user=auth.getUser();
-  const [form,setForm]=useState({fullName:user?.fullName||'',email:'customer@gmail.com',phone:'9841111001',address:'Baneshwor, Kathmandu'});
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
+  const [form,setForm]=useState({fullName:'',email:'',phone:'',address:''});
+  const [loading,setLoading]=useState(true);
   const [editing,setEditing]=useState(false); const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
   const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';return e;};
-  const handleSave=()=>{const e=validate();if(Object.keys(e).length){setErrors(e);return;}show('Profile updated');setEditing(false);};
+
+  useEffect(() => {
+    if (!customerId) return;
+    api.getMyCustomer()
+      .then((c) => {
+        if (!c) return;
+        setForm({
+          fullName: c.user?.fullName ?? '',
+          email: c.user?.email ?? '',
+          phone: c.user?.phoneNumber ?? '',
+          address: c.address ?? '',
+        });
+      })
+      .finally(() => setLoading(false));
+  }, [customerId]);
+
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
+
+  const handleSave=async()=>{
+    const e=validate();
+    if(Object.keys(e).length){setErrors(e);return;}
+    if(!customerId){show('Customer profile not found','error');return;}
+    try {
+      await api.updateCustomer(customerId, {
+        fullName: form.fullName,
+        phone: form.phone,
+        email: form.email || null,
+        address: form.address || null,
+      });
+      const user = auth.getUser();
+      const token = auth.getToken();
+      if (user && token) auth.setAuth({ ...user, fullName: form.fullName }, token);
+      show('Profile updated');
+      setEditing(false);
+    } catch {
+      show('Failed to update profile','error');
+    }
+  };
   return (
     <CustomerLayout title="My Profile">
       {Toast}
+      {(loading || loadingCustomer) && <Loader/>}
+      {!loadingCustomer && customerMissing && <Alert type="error" message="Customer profile not found for this account."/>}
       <PageHeader title="My Profile" subtitle="Manage your personal information" action={!editing&&<Button onClick={()=>setEditing(true)}>Edit Profile</Button>}/>
       <Card>
         <div className="vp-profile-header">
@@ -100,21 +182,55 @@ function CustomerProfile() {
 }
 
 function MyVehicles() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [vehicles,setVehicles]=useState([]); const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(false); const [editing,setEditing]=useState(null); const [confirm,setConfirm]=useState(null);
   const {show,Toast}=useToast();
   const empty={vehicleNumber:'',vehicleType:'Car',brand:'',model:'',year:''};
   const [form,setForm]=useState(empty); const [errors,setErrors]=useState({});
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  useEffect(()=>{api.getVehicles(1).then(setVehicles).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    api.getVehicles(customerId).then(setVehicles).finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   const validate=()=>{const e={};if(!form.vehicleNumber)e.vehicleNumber='Required';if(!form.brand)e.brand='Required';return e;};
-  const handleSave=()=>{const e=validate();if(Object.keys(e).length){setErrors(e);return;}if(editing){setVehicles(v=>v.map(x=>x.id===editing.id?{...x,...form}:x));show('Vehicle updated');}else{setVehicles(v=>[...v,{...form,id:Date.now(),customerId:1}]);show('Vehicle added');}setModal(false);};
+  const handleSave=async()=>{
+    const e=validate();
+    if(Object.keys(e).length){setErrors(e);return;}
+    if(!customerId){show('Customer profile not found','error');return;}
+    const payload = {
+      vehicleNumber: form.vehicleNumber,
+      vehicleType: form.vehicleType,
+      brand: form.brand,
+      model: form.model || '',
+    };
+    try {
+      if(editing) {
+        await api.updateVehicle(customerId, editing.id, payload);
+        show('Vehicle updated');
+      } else {
+        await api.addVehicle(customerId, payload);
+        show('Vehicle added');
+      }
+      const refreshed = await api.getVehicles(customerId);
+      setVehicles(refreshed);
+      setModal(false);
+      setEditing(null);
+      setForm(empty);
+    } catch {
+      show('Failed to save vehicle','error');
+    }
+  };
   return (
     <CustomerLayout title="My Vehicles">
       {Toast}
       <PageHeader title="My Vehicles" subtitle={`${vehicles.length} vehicle(s) registered`} action={<Button onClick={()=>{setEditing(null);setForm(empty);setErrors({});setModal(true);}}>Add Vehicle</Button>}/>
-      {loading?<Loader/>:(
+      {(loading || loadingCustomer)?<Loader/>:(
         <div className="vp-vehicle-grid">
+          {customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:null}
           {vehicles.length===0?<EmptyState message="No vehicles registered yet."/>:vehicles.map(v=>(
             <Card key={v.id} className="vp-vehicle-card">
               <div className="vp-vehicle-card-header">
@@ -138,21 +254,64 @@ function MyVehicles() {
         <FormRow><Select label="Vehicle Type" value={form.vehicleType} onChange={set('vehicleType')}>{['Car','SUV','Truck','Van','Motorcycle','Other'].map(t=><option key={t}>{t}</option>)}</Select><Input label="Brand" value={form.brand} onChange={set('brand')} error={errors.brand} required placeholder="Toyota..."/></FormRow>
         <FormRow><Input label="Model" value={form.model} onChange={set('model')} placeholder="Vitz..."/><Input label="Year" type="number" value={form.year} onChange={set('year')} placeholder="2020" min="1990" max="2025"/></FormRow>
       </Modal>
-      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Remove Vehicle" message={`Remove vehicle ${confirm?.vehicleNumber}?`} onConfirm={()=>{setVehicles(v=>v.filter(x=>x.id!==confirm.id));show('Vehicle removed');setConfirm(null);}}/>
+      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Remove Vehicle" message={`Remove vehicle ${confirm?.vehicleNumber}?`} onConfirm={async()=>{
+        if(!customerId || !confirm) return;
+        try {
+          await api.deleteVehicle(customerId, confirm.id);
+          const refreshed = await api.getVehicles(customerId);
+          setVehicles(refreshed);
+          show('Vehicle removed');
+        } catch {
+          show('Failed to remove vehicle','error');
+        }
+        setConfirm(null);
+      }}/>
     </CustomerLayout>
   );
 }
 
 function BookAppointment() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [appointments,setAppointments]=useState([]); const [vehicles,setVehicles]=useState([]);
   const [loading,setLoading]=useState(true); const [view,setView]=useState('list');
   const [form,setForm]=useState({vehicleId:'',serviceType:'',date:'',time:'',description:''});
   const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  useEffect(()=>{Promise.all([api.getAppointments(),api.getVehicles(1)]).then(([a,v])=>{setAppointments(a.filter(x=>x.customerId===1));setVehicles(v);}).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    Promise.all([api.getAppointments(),api.getVehicles(customerId)])
+      .then(([a,v])=>{setAppointments(a.filter(x=>x.customerId===customerId));setVehicles(v);})
+      .finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   const validate=()=>{const e={};if(!form.vehicleId)e.vehicleId='Select a vehicle';if(!form.serviceType)e.serviceType='Select service type';if(!form.date)e.date='Date is required';else if(new Date(form.date)<new Date())e.date='Date cannot be in the past';if(!form.time)e.time='Time is required';return e;};
-  const handleBook=e=>{e.preventDefault();const errs=validate();if(Object.keys(errs).length){setErrors(errs);return;}const vehicle=vehicles.find(v=>v.id==form.vehicleId);setAppointments(prev=>[...prev,{id:Date.now(),customerId:1,vehicleNumber:vehicle?.vehicleNumber,serviceType:form.serviceType,date:form.date,time:form.time,description:form.description,status:'Pending'}]);show('Appointment booked successfully');setForm({vehicleId:'',serviceType:'',date:'',time:'',description:''});setView('list');};
+  const handleBook=async e=>{
+    e.preventDefault();
+    const errs=validate();
+    if(Object.keys(errs).length){setErrors(errs);return;}
+    if(!customerId){show('Customer profile not found','error');return;}
+    try {
+      const appointmentDate = new Date(`${form.date}T${form.time}:00`).toISOString();
+      await api.createAppointment({
+        customerId,
+        vehicleId: form.vehicleId,
+        appointmentDate,
+        serviceType: form.serviceType,
+        description: form.description || '',
+      });
+      const [a, v] = await Promise.all([api.getAppointments(), api.getVehicles(customerId)]);
+      setAppointments(a.filter(x=>x.customerId===customerId));
+      setVehicles(v);
+      show('Appointment booked successfully');
+      setForm({vehicleId:'',serviceType:'',date:'',time:'',description:''});
+      setView('list');
+    } catch {
+      show('Failed to book appointment','error');
+    }
+  };
   return (
     <CustomerLayout title="Appointments">
       {Toast}
@@ -175,12 +334,12 @@ function BookAppointment() {
           </form>
         </Card>
       ):(
-        <Card>{loading?<Loader/>:appointments.length===0?<EmptyState message="No appointments yet."/>:(
+        <Card>{(loading || loadingCustomer)?<Loader/>:customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:appointments.length===0?<EmptyState message="No appointments yet."/>:(
           <Table columns={[
             {label:'Service Type',key:'serviceType'},
             {label:'Vehicle',key:'vehicleNumber'},
-            {label:'Date',render:a=>formatDate(a.date)},
-            {label:'Time',key:'time'},
+            {label:'Date',render:a=>formatDate(a.appointmentDate || a.date)},
+            {label:'Time',render:a=>a.time || (a.appointmentDate ? new Date(a.appointmentDate).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—')},
             {label:'Status',render:a=><StatusBadge status={a.status}/>},
             {label:'Description',render:a=>a.description||'—'},
           ]} data={appointments}/>
@@ -191,15 +350,46 @@ function BookAppointment() {
 }
 
 function RequestUnavailablePart() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [requests,setRequests]=useState([]); const [vehicles,setVehicles]=useState([]);
   const [loading,setLoading]=useState(true); const [view,setView]=useState('list');
   const [form,setForm]=useState({partName:'',vehicleId:'',description:'',urgency:'Medium'});
   const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  useEffect(()=>{Promise.all([api.getPartRequests(),api.getVehicles(1)]).then(([r,v])=>{setRequests(r.filter(x=>x.customerId===1));setVehicles(v);}).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    Promise.all([api.getPartRequests(),api.getVehicles(customerId)])
+      .then(([r,v])=>{setRequests(r.filter(x=>x.customerId===customerId));setVehicles(v);})
+      .finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   const validate=()=>{const e={};if(!form.partName)e.partName='Required';if(!form.description)e.description='Required';return e;};
-  const handleSubmit=e=>{e.preventDefault();const errs=validate();if(Object.keys(errs).length){setErrors(errs);return;}const vehicle=vehicles.find(v=>v.id==form.vehicleId);setRequests(prev=>[...prev,{id:Date.now(),customerId:1,customerName:'Pramod Karki',partName:form.partName,vehicleNumber:vehicle?.vehicleNumber||'—',description:form.description,urgency:form.urgency,status:'Pending',date:new Date().toISOString().split('T')[0]}]);show('Part request submitted');setForm({partName:'',vehicleId:'',description:'',urgency:'Medium'});setView('list');};
+  const handleSubmit=async e=>{
+    e.preventDefault();
+    const errs=validate();
+    if(Object.keys(errs).length){setErrors(errs);return;}
+    if(!customerId){show('Customer profile not found','error');return;}
+    try {
+      await api.createPartRequest({
+        customerId,
+        partName: form.partName,
+        description: form.description,
+        vehicleId: form.vehicleId || null,
+        urgency: form.urgency,
+      });
+      const [r, v] = await Promise.all([api.getPartRequests(), api.getVehicles(customerId)]);
+      setRequests(r.filter(x=>x.customerId===customerId));
+      setVehicles(v);
+      show('Part request submitted');
+      setForm({partName:'',vehicleId:'',description:'',urgency:'Medium'});
+      setView('list');
+    } catch {
+      show('Failed to submit request','error');
+    }
+  };
   return (
     <CustomerLayout title="Request Part">
       {Toast}
@@ -216,13 +406,13 @@ function RequestUnavailablePart() {
           </form>
         </Card>
       ):(
-        <Card>{loading?<Loader/>:requests.length===0?<EmptyState message="No part requests yet."/>:(
+        <Card>{(loading || loadingCustomer)?<Loader/>:customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:requests.length===0?<EmptyState message="No part requests yet."/>:(
           <Table columns={[
             {label:'Part Name',key:'partName'},
             {label:'Vehicle',key:'vehicleNumber'},
             {label:'Urgency',render:r=><StatusBadge status={r.urgency}/>},
             {label:'Status',render:r=><StatusBadge status={r.status}/>},
-            {label:'Date',render:r=>formatDate(r.date)},
+            {label:'Date',render:r=>formatDate(r.requestDate || r.date)},
           ]} data={requests}/>
         )}</Card>
       )}
@@ -231,10 +421,17 @@ function RequestUnavailablePart() {
 }
 
 function MyHistory() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [tab,setTab]=useState('purchases');
   const [history,setHistory]=useState({purchases:[],appointments:[]});
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{api.getCustomerHistory(1).then(setHistory).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    api.getCustomerHistory(customerId).then(setHistory).finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   return (
     <CustomerLayout title="My History">
       <PageHeader title="My History" subtitle="Purchase and service records"/>
@@ -243,11 +440,11 @@ function MyHistory() {
           <button key={key} className={`vp-tab-btn ${tab===key?'vp-tab-active':''}`} onClick={()=>setTab(key)}>{label}</button>
         ))}
       </div>
-      {loading?<Loader/>:(
+      {(loading || loadingCustomer)?<Loader/>:customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:(
         <Card>
           {tab==='purchases'&&<Table columns={[{label:'Invoice #',key:'invoiceNumber'},{label:'Date',render:i=>formatDate(i.date)},{label:'Subtotal',render:i=>formatCurrency(i.subtotal)},{label:'Discount',render:i=>i.discount>0?<span className="vp-success-color">- {formatCurrency(i.discount)}</span>:'—'},{label:'Total',render:i=><span className="vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Status',render:i=><StatusBadge status={i.paymentStatus}/>}]} data={history.purchases} emptyMessage="No purchase history."/>}
           {tab==='services'&&<EmptyState message="No service history records yet."/>}
-          {tab==='appointments'&&<Table columns={[{label:'Service',key:'serviceType'},{label:'Vehicle',key:'vehicleNumber'},{label:'Date',render:a=>formatDate(a.date)},{label:'Status',render:a=><StatusBadge status={a.status}/>}]} data={history.appointments} emptyMessage="No appointments."/>}
+          {tab==='appointments'&&<Table columns={[{label:'Service',key:'serviceType'},{label:'Vehicle',key:'vehicleNumber'},{label:'Date',render:a=>formatDate(a.appointmentDate || a.date)},{label:'Status',render:a=><StatusBadge status={a.status}/>}]} data={history.appointments} emptyMessage="No appointments."/>}
           {tab==='credits'&&<Table columns={[{label:'Invoice #',key:'invoiceNumber'},{label:'Date',render:i=>formatDate(i.date)},{label:'Amount',render:i=><span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Due Date',render:i=>i.creditDueDate?formatDate(i.creditDueDate):'—'},{label:'Status',render:i=><StatusBadge status={i.paymentStatus}/>}]} data={history.purchases.filter(i=>i.paymentStatus==='Credit')} emptyMessage="No credit invoices."/>}
         </Card>
       )}
@@ -256,13 +453,35 @@ function MyHistory() {
 }
 
 function SubmitReview() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [reviews,setReviews]=useState([]); const [loading,setLoading]=useState(true);
   const [form,setForm]=useState({rating:0,comment:''}); const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  useEffect(()=>{api.getReviews().then(r=>setReviews(r.filter(x=>x.customerId===1))).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    api.getReviews().then(r=>setReviews(r.filter(x=>x.customerId===customerId))).finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   const validate=()=>{const e={};if(!form.rating||form.rating<1||form.rating>5)e.rating='Please select a rating (1–5)';if(!form.comment.trim())e.comment='Comment is required';return e;};
-  const handleSubmit=e=>{e.preventDefault();const errs=validate();if(Object.keys(errs).length){setErrors(errs);return;}setReviews(prev=>[...prev,{id:Date.now(),customerId:1,customerName:'Pramod Karki',rating:form.rating,comment:form.comment,date:new Date().toISOString().split('T')[0]}]);show('Review submitted');setForm({rating:0,comment:''});setErrors({});};
+  const handleSubmit=async e=>{
+    e.preventDefault();
+    const errs=validate();
+    if(Object.keys(errs).length){setErrors(errs);return;}
+    if(!customerId){show('Customer profile not found','error');return;}
+    try {
+      await api.createReview({ customerId, rating: form.rating, comment: form.comment, appointmentId: null });
+      const r = await api.getReviews();
+      setReviews(r.filter(x=>x.customerId===customerId));
+      show('Review submitted');
+      setForm({rating:0,comment:''});
+      setErrors({});
+    } catch {
+      show('Failed to submit review','error');
+    }
+  };
   return (
     <CustomerLayout title="Reviews">
       {Toast}
@@ -281,7 +500,7 @@ function SubmitReview() {
       </Card>
       <Card style={{marginTop:16}}>
         <div className="vp-section-title">My Reviews</div>
-        {loading?<Loader/>:reviews.length===0?<EmptyState message="No reviews yet."/>:(
+        {(loading || loadingCustomer)?<Loader/>:customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:reviews.length===0?<EmptyState message="No reviews yet."/>:(
           <div className="vp-reviews-list">
             {reviews.map(r=>(
               <div key={r.id} className="vp-review-item">
@@ -300,14 +519,21 @@ function SubmitReview() {
 }
 
 function PartFailurePrediction() {
+  const { customerId, loadingCustomer, customerMissing } = useCustomerContext();
   const [predictions,setPredictions]=useState([]); const [loading,setLoading]=useState(true);
-  useEffect(()=>{api.getPredictions(1).then(setPredictions).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{
+    if (!customerId) return;
+    api.getPredictions(customerId).then(setPredictions).finally(()=>setLoading(false));
+  }, [customerId]);
+  useEffect(() => {
+    if (!loadingCustomer && !customerId) setLoading(false);
+  }, [loadingCustomer, customerId]);
   const riskBorder={High:'var(--error)',Medium:'var(--warning)',Low:'var(--success)'};
   return (
     <CustomerLayout title="Predictions">
       <PageHeader title="Part Failure Predictions" subtitle="AI-based analysis of your vehicle components"/>
       <Alert type="info" message="Predictions are based on service history, purchase records, and usage patterns. Always consult a mechanic for a final assessment."/>
-      {loading?<Loader text="Analysing vehicle data..."/>:(
+      {(loading || loadingCustomer)?<Loader text="Analysing vehicle data..."/>:customerMissing?<Alert type="error" message="Customer profile not found for this account."/>:(
         <div style={{marginTop:16}}>
           {predictions.length===0?<EmptyState message="No predictions available for your vehicles."/>:predictions.map(p=>(
             <Card key={p.id} className="vp-pred-card">
