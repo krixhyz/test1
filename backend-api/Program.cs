@@ -1,52 +1,72 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using WeatherAPI.Application.Interfaces;
+using WeatherAPI.Application.Services;
+using WeatherAPI.Domain.Entities;
+using WeatherAPI.Infrastructure.Data;
+using WeatherAPI.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-builder.Services.AddDbContext<AppDbContext>(options =>
+
+// Database
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowAllOrigins",
-        policy =>
-        {
-            policy.AllowAnyOrigin() // Use AllowAnyOrigin() with caution
-                  .AllowAnyMethod()
-                  .AllowAnyHeader();
-        });
+// Identity
+builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options => {
+    options.Password.RequireDigit = false;
+    options.Password.RequireLowercase = false;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequireUppercase = false;
+    options.Password.RequiredLength = 6;
+})
+.AddEntityFrameworkStores<ApplicationDbContext>()
+.AddDefaultTokenProviders();
+
+// JWT Authentication
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "super_secret_key_1234567890123456";
+builder.Services.AddAuthentication(options => {
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options => {
+    options.TokenValidationParameters = new TokenValidationParameters {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "VehiclePartsApi",
+        ValidAudience = builder.Configuration["Jwt:Audience"] ?? "VehiclePartsClient",
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+    };
 });
 
+// Dependency Injection
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<InventoryService>();
+builder.Services.AddScoped<SalesService>();
+builder.Services.AddScoped<AiPredictionService>();
 
-builder.Services.Configure<ExternalServicesOptions>(builder.Configuration.GetSection("ExternalServices"));
-
-
+builder.Services.AddCors(options => {
+    options.AddPolicy("AllowAllOrigins", policy => {
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    });
+});
 
 var app = builder.Build();
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.CanConnect();
-    if (db.Database.CanConnect())
-    {
-        Console.WriteLine("Database connected successfully!");
-    }
-    else
-    {
 
-        Console.WriteLine(" Database connection failed!");
-    }
-}
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
+if (app.Environment.IsDevelopment()) {
     app.MapOpenApi();
     app.UseSwagger();
     app.UseSwaggerUI();
@@ -55,6 +75,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowAllOrigins");
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
