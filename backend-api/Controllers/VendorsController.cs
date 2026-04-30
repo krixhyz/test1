@@ -25,7 +25,13 @@ public class VendorsController : ControllerBase {
 
     [HttpPost]
     public async Task<IActionResult> Create(CreateVendorDto dto) {
-        var vendor = new Vendor { VendorName = dto.VendorName, Phone = dto.Phone, Email = dto.Email, Address = dto.Address, ContactPerson = dto.ContactPerson };
+        var vendor = new Vendor {
+            VendorName = dto.VendorName,
+            Phone = dto.Phone,
+            Email = dto.Email ?? string.Empty,
+            Address = dto.Address ?? string.Empty,
+            ContactPerson = dto.ContactPerson ?? string.Empty
+        };
         _db.Vendors.Add(vendor);
         await _db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetById), new { id = vendor.Id }, ApiResponse<Vendor>.Ok(vendor));
@@ -36,8 +42,8 @@ public class VendorsController : ControllerBase {
         var vendor = await _db.Vendors.FindAsync(id);
         if (vendor == null) return NotFound(ApiResponse<object>.Fail("Vendor not found."));
         vendor.VendorName = dto.VendorName; vendor.Phone = dto.Phone;
-        vendor.Email = dto.Email; vendor.Address = dto.Address;
-        vendor.ContactPerson = dto.ContactPerson; vendor.IsActive = dto.IsActive;
+        vendor.Email = dto.Email ?? string.Empty; vendor.Address = dto.Address ?? string.Empty;
+        vendor.ContactPerson = dto.ContactPerson ?? string.Empty; vendor.IsActive = dto.IsActive;
         await _db.SaveChangesAsync();
         return Ok(ApiResponse<Vendor>.Ok(vendor));
     }
@@ -46,7 +52,7 @@ public class VendorsController : ControllerBase {
     public async Task<IActionResult> Delete(Guid id) {
         var vendor = await _db.Vendors.FindAsync(id);
         if (vendor == null) return NotFound(ApiResponse<object>.Fail("Vendor not found."));
-        _db.Vendors.Remove(vendor);
+        vendor.IsActive = false;
         await _db.SaveChangesAsync();
         return NoContent();
     }

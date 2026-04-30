@@ -71,6 +71,7 @@ function StatusBadge({ status }) {
 }
 
 function stockStatus(part) {
+  if (part.isActive === false) return 'Inactive';
   if (part.stockQty === 0) return 'Out of Stock';
   if (part.stockQty <= part.reorderLevel) return 'Low Stock';
   return 'In Stock';

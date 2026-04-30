@@ -68,15 +68,27 @@ function StaffManagement() {
   useEffect(() => { api.getStaff().then(setStaff).finally(() => setLoading(false)); }, []);
   const filtered = staff.filter(s => [s.fullName,s.email,s.phone,s.position].some(v => v?.toLowerCase().includes(search.toLowerCase())));
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
-  const validate = () => { const e={}; if(!form.fullName) e.fullName='Required'; if(!form.email) e.email='Required'; if(!form.phone) e.phone='Required'; return e; };
+  const validate = () => { const e={}; if(!form.fullName) e.fullName='Required'; if(!form.email) e.email='Required'; if(!form.phone) e.phone='Required'; if(!form.position) e.position='Required'; return e; };
   const handleSave = async () => {
     const e = validate(); if(Object.keys(e).length){setErrors(e);return;}
     try {
       if(editing) {
-        await api.updateStaff(editing.id, { fullName: form.fullName, phone: form.phone });
+        await api.updateStaff(editing.id, {
+          fullName: form.fullName,
+          phone: form.phone,
+          position: form.position || '',
+          isActive: form.status === 'Active',
+        });
         show('Staff updated');
       } else {
-        await api.createStaff({ fullName: form.fullName, email: form.email, phone: form.phone, password: 'Staff@123' });
+        await api.createStaff({
+          fullName: form.fullName,
+          email: form.email,
+          phone: form.phone,
+          password: 'Staff@123',
+          position: form.position || '',
+          isActive: form.status === 'Active',
+        });
         show('Staff added (default password: Staff@123)');
       }
       const fresh = await api.getStaff();
@@ -182,7 +194,7 @@ function VendorManagement() {
     {label:'Actions',render:v=>(
       <div className="vp-action-btns">
         <Button size="sm" variant="ghost" onClick={()=>{setEditing(v);setForm({...v});setErrors({});setModal(true);}}>Edit</Button>
-        <Button size="sm" variant="danger" onClick={()=>setConfirm(v)}>Delete</Button>
+        <Button size="sm" variant="warning" onClick={()=>setConfirm(v)}>Deactivate</Button>
       </div>
     )},
   ];
@@ -198,15 +210,15 @@ function VendorManagement() {
         <FormRow><Input label="Email" type="email" value={form.email} onChange={set('email')} placeholder="vendor@email.com"/><Select label="Status" value={form.status} onChange={set('status')}><option>Active</option><option>Inactive</option></Select></FormRow>
         <Input label="Address" value={form.address} onChange={set('address')} placeholder="Street, City"/>
       </Modal>
-      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Vendor" message={`Remove vendor "${confirm?.vendorName}"? This cannot be undone.`} onConfirm={async()=>{
+      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Deactivate Vendor" message={`Deactivate vendor "${confirm?.vendorName}"?`} onConfirm={async()=>{
         if (!confirm) return;
         try {
           await api.deleteVendor(confirm.id);
           const fresh = await api.getVendors();
           setVendors(fresh);
-          show('Vendor removed');
+          show('Vendor deactivated');
         } catch {
-          show('Failed to remove vendor','error');
+          show('Failed to deactivate vendor','error');
         }
         setConfirm(null);
       }}/>
@@ -233,10 +245,12 @@ function PartsManagement() {
       partName: form.partName,
       partCode: form.partCode,
       category: form.category,
+      description: form.description || '',
       unitPrice: parseFloat(form.unitPrice),
       stockQuantity: parseInt(form.stockQty),
       reorderLevel: parseInt(form.reorderLevel) || 10,
       vendorId: form.vendorId || null,
+      isActive: form.status === 'Active',
     };
     try {
       if(editing){
@@ -261,12 +275,12 @@ function PartsManagement() {
     {label:'Category',key:'category'},
     {label:'Unit Price',render:p=>formatCurrency(p.unitPrice)},
     {label:'Stock',render:p=><span style={{color:p.stockQty<=p.reorderLevel?'var(--error)':'var(--tx)',fontWeight:600}}>{p.stockQty}</span>},
-    {label:'Status',render:p=><StatusBadge status={window.stockStatus(p)}/>},
+    {label:'Status',render:p=><StatusBadge status={stockStatus(p)}/>},
     {label:'Vendor',key:'vendorName'},
     {label:'Actions',render:p=>(
       <div className="vp-action-btns">
         <Button size="sm" variant="ghost" onClick={()=>{setEditing(p);setForm({...p});setErrors({});setModal(true);}}>Edit</Button>
-        <Button size="sm" variant="danger" onClick={()=>setConfirm(p)}>Delete</Button>
+        <Button size="sm" variant="warning" onClick={()=>setConfirm(p)}>Deactivate</Button>
       </div>
     )},
   ];
@@ -289,15 +303,15 @@ function PartsManagement() {
         <FormRow><Input label="Reorder Level" type="number" value={form.reorderLevel} onChange={set('reorderLevel')} min="0"/><Select label="Status" value={form.status} onChange={set('status')}><option>Active</option><option>Inactive</option></Select></FormRow>
         <Textarea label="Description" value={form.description} onChange={set('description')} placeholder="Part description..."/>
       </Modal>
-      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Delete Part" message={`Delete "${confirm?.partName}"?`} onConfirm={async()=>{
+      <ConfirmDialog open={!!confirm} onClose={()=>setConfirm(null)} title="Deactivate Part" message={`Deactivate "${confirm?.partName}"?`} onConfirm={async()=>{
         if (!confirm) return;
         try {
           await api.deletePart(confirm.id);
           const fresh = await api.getParts();
           setParts(fresh);
-          show('Part deleted');
+          show('Part deactivated');
         } catch {
-          show('Failed to delete part','error');
+          show('Failed to deactivate part','error');
         }
         setConfirm(null);
       }}/>
@@ -419,7 +433,7 @@ function LowStockAlerts() {
     {label:'Current Stock',render:p=><span style={{color:p.stockQty===0?'var(--error)':'var(--warning)',fontWeight:700}}>{p.stockQty}</span>},
     {label:'Reorder Level',key:'reorderLevel'},
     {label:'Vendor',key:'vendorName'},
-    {label:'Status',render:p=><StatusBadge status={window.stockStatus(p)}/>},
+    {label:'Status',render:p=><StatusBadge status={stockStatus(p)}/>},
     {label:'Action',render:()=><Button size="sm" variant="primary" onClick={()=>navigate('/admin/purchase-invoices')}>Order Stock</Button>},
   ];
   return (

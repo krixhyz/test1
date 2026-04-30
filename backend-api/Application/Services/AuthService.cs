@@ -29,6 +29,8 @@ public class AuthService : IAuthService {
         var user = await _userManager.FindByEmailAsync(dto.Email);
         if (user == null || !await _userManager.CheckPasswordAsync(user, dto.Password))
             return ApiResponse<object>.Fail("Invalid credentials");
+        if (!user.IsActive)
+            return ApiResponse<object>.Fail("Account is inactive. Please contact administrator.");
 
         var roles = await _userManager.GetRolesAsync(user);
         var role = roles.FirstOrDefault() ?? "Customer";
@@ -68,6 +70,10 @@ public class AuthService : IAuthService {
     }
 
     public async Task<ApiResponse<object>> RegisterCustomerAsync(RegisterCustomerDto dto) {
+        var vehicleExists = await _db.CustomerVehicles.AsNoTracking()
+            .AnyAsync(v => v.VehicleNumber == dto.VehicleNumber);
+        if (vehicleExists) return ApiResponse<object>.Fail("Vehicle number already registered.");
+
         var user = new ApplicationUser { UserName = dto.Email, Email = dto.Email, FullName = dto.FullName, PhoneNumber = dto.Phone };
         var result = await _userManager.CreateAsync(user, dto.Password);
         if (!result.Succeeded) return ApiResponse<object>.Fail(result.Errors.First().Description);

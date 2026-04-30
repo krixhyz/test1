@@ -15,7 +15,7 @@ public class StaffController : ControllerBase {
     [HttpGet]
     public async Task<IActionResult> GetAll() {
         var staff = await _userManager.GetUsersInRoleAsync("Staff");
-        var result = staff.Select(s => new { s.Id, s.Email, s.FullName, s.PhoneNumber, s.IsActive, s.CreatedAt });
+        var result = staff.Select(s => new { s.Id, s.Email, s.FullName, s.PhoneNumber, s.Position, s.IsActive, s.CreatedAt });
         return Ok(ApiResponse<object>.Ok(result));
     }
 
@@ -25,16 +25,23 @@ public class StaffController : ControllerBase {
         if (user == null) return NotFound(ApiResponse<object>.Fail("Staff not found."));
         var roles = await _userManager.GetRolesAsync(user);
         if (!roles.Contains("Staff")) return NotFound(ApiResponse<object>.Fail("Staff not found."));
-        return Ok(ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.IsActive, user.CreatedAt }));
+        return Ok(ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Position, user.IsActive, user.CreatedAt }));
     }
 
     [HttpPost]
     public async Task<IActionResult> Create(CreateStaffDto dto) {
-        var user = new ApplicationUser { UserName = dto.Email, Email = dto.Email, FullName = dto.FullName, PhoneNumber = dto.Phone };
+        var user = new ApplicationUser {
+            UserName = dto.Email,
+            Email = dto.Email,
+            FullName = dto.FullName,
+            PhoneNumber = dto.Phone,
+            Position = dto.Position ?? string.Empty,
+            IsActive = dto.IsActive
+        };
         var res = await _userManager.CreateAsync(user, dto.Password);
         if (!res.Succeeded) return BadRequest(ApiResponse<object>.Fail(string.Join(", ", res.Errors.Select(e => e.Description))));
         await _userManager.AddToRoleAsync(user, "Staff");
-        return CreatedAtAction(nameof(GetById), new { id = user.Id }, ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName }));
+        return CreatedAtAction(nameof(GetById), new { id = user.Id }, ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName, user.Position, user.IsActive }));
     }
 
     [HttpPut("{id}")]
@@ -43,9 +50,11 @@ public class StaffController : ControllerBase {
         if (user == null) return NotFound(ApiResponse<object>.Fail("Staff not found."));
         user.FullName = dto.FullName;
         user.PhoneNumber = dto.Phone;
+        user.Position = dto.Position ?? string.Empty;
+        user.IsActive = dto.IsActive;
         var res = await _userManager.UpdateAsync(user);
         if (!res.Succeeded) return BadRequest(ApiResponse<object>.Fail(string.Join(", ", res.Errors.Select(e => e.Description))));
-        return Ok(ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName, user.PhoneNumber }));
+        return Ok(ApiResponse<object>.Ok(new { user.Id, user.Email, user.FullName, user.PhoneNumber, user.Position, user.IsActive }));
     }
 
     [HttpPatch("{id}/status")]

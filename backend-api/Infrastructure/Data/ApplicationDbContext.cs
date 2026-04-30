@@ -25,6 +25,14 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser, IdentityR
 
     protected override void OnModelCreating(ModelBuilder builder) {
         base.OnModelCreating(builder);
+
+        builder.Entity<CustomerVehicle>()
+            .HasIndex(v => v.VehicleNumber)
+            .IsUnique();
+        builder.Entity<Part>()
+            .HasIndex(p => p.PartCode)
+            .IsUnique();
+
         builder.Entity<Part>().Property(p => p.UnitPrice).HasColumnType("decimal(18,2)");
         builder.Entity<PurchaseInvoice>().Property(p => p.TotalAmount).HasColumnType("decimal(18,2)");
         builder.Entity<PurchaseInvoiceItem>().Property(p => p.UnitCost).HasColumnType("decimal(18,2)");

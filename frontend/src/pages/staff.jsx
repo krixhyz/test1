@@ -50,34 +50,31 @@ function StaffDashboard() {
 }
 
 function CustomerRegistration() {
-  const [form,setForm]=useState({fullName:'',email:'',phone:'',address:'',vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});
+  const defaultPassword = `Customer@${new Date().getFullYear()}`;
+  const [form,setForm]=useState({fullName:'',email:'',phone:'',address:'',password:defaultPassword,confirmPassword:defaultPassword,vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});
   const [errors,setErrors]=useState({}); const [loading,setLoading]=useState(false);
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';if(!form.vehicleNumber)e.vehicleNumber='Required';return e;};
+  const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';if(!form.password||form.password.length<6)e.password='Min. 6 characters';if(form.password!==form.confirmPassword)e.confirmPassword='Passwords do not match';if(!form.vehicleNumber)e.vehicleNumber='Required';return e;};
   const handleSubmit=async e=>{
     e.preventDefault();
     const errs=validate();
     if(Object.keys(errs).length){setErrors(errs);return;}
     setLoading(true);
     try {
-      const created = await api.createCustomer({
+      await api.createCustomer({
         fullName: form.fullName,
         phone: form.phone,
         email: form.email || null,
         address: form.address || null,
+        password: form.password,
+        vehicleNumber: form.vehicleNumber,
+        vehicleType: form.vehicleType,
+        vehicleBrand: form.vehicleBrand || 'Unknown',
+        vehicleModel: form.vehicleModel || '',
       });
-      const customerId = created?.id;
-      if (customerId) {
-        await api.addVehicle(customerId, {
-          vehicleNumber: form.vehicleNumber,
-          vehicleType: form.vehicleType,
-          brand: form.vehicleBrand || 'Unknown',
-          model: form.vehicleModel || '',
-        });
-      }
       show('Customer registered successfully');
-      setForm({fullName:'',email:'',phone:'',address:'',vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});
+      setForm({fullName:'',email:'',phone:'',address:'',password:defaultPassword,confirmPassword:defaultPassword,vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});
       setErrors({});
     } catch {
       show('Failed to register customer','error');
@@ -94,10 +91,11 @@ function CustomerRegistration() {
           <p className="vp-section-label">Customer Information</p>
           <FormRow><Input label="Full Name" value={form.fullName} onChange={set('fullName')} error={errors.fullName} required placeholder="Customer's full name"/><Input label="Phone Number" value={form.phone} onChange={set('phone')} error={errors.phone} required placeholder="98XXXXXXXX"/></FormRow>
           <FormRow><Input label="Email Address" type="email" value={form.email} onChange={set('email')} error={errors.email} placeholder="customer@email.com"/><Input label="Address" value={form.address} onChange={set('address')} placeholder="City, District"/></FormRow>
+          <FormRow><Input label="Account Password" type="password" value={form.password} onChange={set('password')} error={errors.password} required/><Input label="Confirm Password" type="password" value={form.confirmPassword} onChange={set('confirmPassword')} error={errors.confirmPassword} required/></FormRow>
           <p className="vp-section-label" style={{marginTop:20}}>Vehicle Information</p>
           <FormRow><Input label="Vehicle Number" value={form.vehicleNumber} onChange={set('vehicleNumber')} error={errors.vehicleNumber} required placeholder="BA 1 PA 1234"/><Select label="Vehicle Type" value={form.vehicleType} onChange={set('vehicleType')}>{['Car','SUV','Truck','Van','Motorcycle','Other'].map(t=><option key={t}>{t}</option>)}</Select></FormRow>
           <FormRow><Input label="Brand" value={form.vehicleBrand} onChange={set('vehicleBrand')} placeholder="Toyota, Honda..."/><Input label="Model" value={form.vehicleModel} onChange={set('vehicleModel')} placeholder="Vitz, City..."/><Input label="Year" type="number" value={form.manufacturedYear} onChange={set('manufacturedYear')} placeholder="2020" min="1990" max="2025"/></FormRow>
-          <div className="vp-form-actions"><Button type="submit" disabled={loading}>{loading?'Registering...':'Register Customer'}</Button><Button variant="ghost" type="button" onClick={()=>{setForm({fullName:'',email:'',phone:'',address:'',vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});setErrors({});}}>Clear</Button></div>
+          <div className="vp-form-actions"><Button type="submit" disabled={loading}>{loading?'Registering...':'Register Customer'}</Button><Button variant="ghost" type="button" onClick={()=>{setForm({fullName:'',email:'',phone:'',address:'',password:defaultPassword,confirmPassword:defaultPassword,vehicleNumber:'',vehicleType:'Car',vehicleBrand:'',vehicleModel:'',manufacturedYear:''});setErrors({});}}>Clear</Button></div>
         </form>
       </Card>
     </StaffLayout>

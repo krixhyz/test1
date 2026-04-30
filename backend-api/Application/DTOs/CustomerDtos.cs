@@ -6,6 +6,11 @@ public class CreateCustomerDto {
     [Required][Phone] public string Phone { get; set; } = string.Empty;
     [EmailAddress] public string? Email { get; set; }
     [MaxLength(250)] public string? Address { get; set; }
+    [Required][MinLength(6)] public string Password { get; set; } = string.Empty;
+    [MaxLength(20)] public string? VehicleNumber { get; set; }
+    [MaxLength(50)] public string? VehicleType { get; set; }
+    [MaxLength(100)] public string? VehicleBrand { get; set; }
+    [MaxLength(100)] public string? VehicleModel { get; set; }
 }
 public class UpdateCustomerDto {
     [Required][MaxLength(150)] public string FullName { get; set; } = string.Empty;

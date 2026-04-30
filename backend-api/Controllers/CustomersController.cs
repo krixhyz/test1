@@ -60,21 +60,47 @@ public class CustomersController : ControllerBase {
     [Authorize(Roles = "Staff,Admin")]
     [HttpPost]
     public async Task<IActionResult> Create(CreateCustomerDto dto) {
+        if (!string.IsNullOrWhiteSpace(dto.VehicleNumber)) {
+            var dupVehicle = await _db.CustomerVehicles.AsNoTracking().AnyAsync(v => v.VehicleNumber == dto.VehicleNumber);
+            if (dupVehicle) return BadRequest(ApiResponse<object>.Fail("Vehicle number already registered."));
+        }
+
         var user = new ApplicationUser {
-            UserName = dto.Phone,
+            UserName = dto.Email ?? dto.Phone,
             Email = dto.Email ?? $"{dto.Phone}@vparts.local",
             FullName = dto.FullName,
             PhoneNumber = dto.Phone
         };
-        var pass = "Customer@" + DateTime.UtcNow.Year;
-        var res = await _userManager.CreateAsync(user, pass);
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        var res = await _userManager.CreateAsync(user, dto.Password);
         if (!res.Succeeded) return BadRequest(ApiResponse<object>.Fail(string.Join(", ", res.Errors.Select(e => e.Description))));
-        await _userManager.AddToRoleAsync(user, "Customer");
+
+        var roleRes = await _userManager.AddToRoleAsync(user, "Customer");
+        if (!roleRes.Succeeded) {
+            await tx.RollbackAsync();
+            await _userManager.DeleteAsync(user);
+            return BadRequest(ApiResponse<object>.Fail(string.Join(", ", roleRes.Errors.Select(e => e.Description))));
+        }
+
         var customer = new Customer { UserId = user.Id, Address = dto.Address ?? string.Empty };
         _db.Customers.Add(customer);
         await _db.SaveChangesAsync();
+
+        if (!string.IsNullOrWhiteSpace(dto.VehicleNumber)) {
+            var vehicle = new CustomerVehicle {
+                CustomerId = customer.Id,
+                VehicleNumber = dto.VehicleNumber,
+                VehicleType = string.IsNullOrWhiteSpace(dto.VehicleType) ? "Car" : dto.VehicleType,
+                Brand = string.IsNullOrWhiteSpace(dto.VehicleBrand) ? "Unknown" : dto.VehicleBrand,
+                Model = dto.VehicleModel ?? string.Empty
+            };
+            _db.CustomerVehicles.Add(vehicle);
+            await _db.SaveChangesAsync();
+        }
+
+        await tx.CommitAsync();
         return CreatedAtAction(nameof(GetById), new { id = customer.Id },
-            ApiResponse<object>.Ok(new { customer.Id, user.FullName, user.PhoneNumber, defaultPassword = pass }));
+            ApiResponse<object>.Ok(new { customer.Id, user.FullName, user.PhoneNumber }));
     }
 
     [Authorize(Roles = "Staff,Admin")]

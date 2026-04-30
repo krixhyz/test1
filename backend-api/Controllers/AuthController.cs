@@ -21,6 +21,7 @@ public class AuthController : ControllerBase {
     [HttpPost("register-customer")]
     public async Task<IActionResult> Register(RegisterCustomerDto dto) => Ok(await _auth.RegisterCustomerAsync(dto));
 
+    [Authorize(Roles = "Admin")]
     [HttpPost("seed")]
     public async Task<IActionResult> Seed() { await _auth.SeedRolesAndAdminAsync(); return Ok("Seeded"); }
 

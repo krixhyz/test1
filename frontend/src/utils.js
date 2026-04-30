@@ -81,7 +81,7 @@ const api = {
       fullName: s.fullName ?? '',
       email: s.email ?? '',
       phone: s.phoneNumber ?? '',
-      position: s.position ?? 'Staff',
+      position: s.position ?? '',
       status: toBoolStatus(s.isActive ?? true),
       joinedDate: s.createdAt ?? null,
       isActive: s.isActive ?? true,
@@ -127,7 +127,8 @@ const api = {
       reorderLevel: p.reorderLevel ?? 10,
       vendorId: p.vendorId ?? '',
       vendorName: p.vendor?.vendorName ?? p.vendorName ?? '',
-      status: 'Active',
+      status: toBoolStatus(p.isActive ?? true),
+      isActive: p.isActive ?? true,
     }));
   },
   createPart: async (data) => { const res = await axiosClient.post('/parts', data); return unwrap(res); },
@@ -147,7 +148,8 @@ const api = {
       reorderLevel: p.reorderLevel ?? 10,
       vendorId: p.vendorId ?? '',
       vendorName: p.vendor?.vendorName ?? p.vendorName ?? '',
-      status: 'Active',
+      status: toBoolStatus(p.isActive ?? true),
+      isActive: p.isActive ?? true,
     }));
   },
 

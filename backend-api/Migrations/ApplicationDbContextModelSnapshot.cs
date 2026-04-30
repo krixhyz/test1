@@ -202,6 +202,10 @@ namespace WeatherAPI.Migrations
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("text");
 
+                    b.Property<string>("Position")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean");
 
@@ -315,6 +319,9 @@ namespace WeatherAPI.Migrations
 
                     b.HasIndex("CustomerId");
 
+                    b.HasIndex("VehicleNumber")
+                        .IsUnique();
+
                     b.ToTable("CustomerVehicles");
                 });
 
@@ -387,6 +394,9 @@ namespace WeatherAPI.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PartCode")
                         .IsRequired()
                         .HasColumnType("text");
@@ -404,10 +414,13 @@ namespace WeatherAPI.Migrations
                     b.Property<decimal>("UnitPrice")
                         .HasColumnType("decimal(18,2)");
 
-                    b.Property<Guid>("VendorId")
+                    b.Property<Guid?>("VendorId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PartCode")
+                        .IsUnique();
 
                     b.HasIndex("VendorId");
 
@@ -788,9 +801,7 @@ namespace WeatherAPI.Migrations
                 {
                     b.HasOne("WeatherAPI.Domain.Entities.Vendor", "Vendor")
                         .WithMany()
-                        .HasForeignKey("VendorId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("VendorId");
 
                     b.Navigation("Vendor");
                 });

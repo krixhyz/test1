@@ -80,4 +80,9 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+using (var scope = app.Services.CreateScope()) {
+    var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
+    await authService.SeedRolesAndAdminAsync();
+}
+
 app.Run();
