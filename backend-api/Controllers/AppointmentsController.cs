@@ -43,7 +43,7 @@ public class AppointmentsController : ControllerBase {
         if (a == null) return NotFound();
         a.Status = status;
         await _db.SaveChangesAsync();
-        return Ok(ApiResponse<object>.Ok(null, "Status updated."));
+        return Ok(ApiResponse<object>.Ok(new { a.Id, a.Status }, "Status updated."));
     }
 }
 

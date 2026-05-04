@@ -1,5 +1,5 @@
 import { CustomerDashboard, CustomerProfile, MyVehicles, BookAppointment, RequestUnavailablePart, MyHistory, SubmitReview, PartFailurePrediction } from './pages/customer.jsx';
-import { StaffDashboard, CustomerRegistration, CustomerSearch, PartsSale, SalesInvoices, CustomerDetails, CustomerReports, CreditReminders } from './pages/staff.jsx';
+import { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, PartsSale, SalesInvoices, CustomerDetails, CustomerReports, CreditReminders } from './pages/staff.jsx';
 import { AdminDashboard, StaffManagement, VendorManagement, PartsManagement, PurchaseInvoices, FinancialReports, LowStockAlerts, AdminNotifications } from './pages/admin.jsx';
 import { Login, Register, Home } from './pages/public.jsx';
 import { ProtectedRoute } from './components/layout.jsx';
@@ -22,6 +22,7 @@ const routes = {
   '/admin/notifications':          () => <ProtectedRoute allowedRoles={['Admin']}><AdminNotifications /></ProtectedRoute>,
 
   '/staff/dashboard':              () => <ProtectedRoute allowedRoles={['Staff']}><StaffDashboard /></ProtectedRoute>,
+  '/staff/customers':              () => <ProtectedRoute allowedRoles={['Staff']}><CustomersPage /></ProtectedRoute>,
   '/staff/customers/register':     () => <ProtectedRoute allowedRoles={['Staff']}><CustomerRegistration /></ProtectedRoute>,
   '/staff/customers/search':       () => <ProtectedRoute allowedRoles={['Staff']}><CustomerSearch /></ProtectedRoute>,
   '/staff/sales':                  () => <ProtectedRoute allowedRoles={['Staff']}><PartsSale /></ProtectedRoute>,

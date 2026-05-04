@@ -2,17 +2,39 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json.Serialization;
 using WeatherAPI.Application.Interfaces;
 using WeatherAPI.Application.Services;
 using WeatherAPI.Domain.Entities;
 using WeatherAPI.Infrastructure.Data;
 using WeatherAPI.Middleware;
 
+// Dev-only guard: stop stale WeatherAPI instances that keep port 5033 occupied.
+if (string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)) {
+    var current = Process.GetCurrentProcess();
+    foreach (var process in Process.GetProcessesByName(current.ProcessName)) {
+        if (process.Id == current.Id) continue;
+
+        try {
+            var sameExecutable = string.Equals(process.MainModule?.FileName, current.MainModule?.FileName, StringComparison.OrdinalIgnoreCase);
+            if (!sameExecutable) continue;
+
+            process.Kill(true);
+            process.WaitForExit(3000);
+        } catch {
+            // Ignore inaccessible or already-terminated processes.
+        }
+    }
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options => {
+    options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddOpenApi();
@@ -72,7 +94,9 @@ if (app.Environment.IsDevelopment()) {
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment()) {
+    app.UseHttpsRedirection();
+}
 app.UseCors("AllowAllOrigins");
 
 app.UseAuthentication();

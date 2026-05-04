@@ -47,6 +47,7 @@ const adminLinks = [
 ];
 const staffLinks = [
   { path:'/staff/dashboard',          label:'Dashboard',        icon:'dashboard' },
+  { path:'/staff/customers',          label:'Customers',        icon:'profile'   },
   { path:'/staff/customers/register', label:'Register Customer',icon:'add_user'  },
   { path:'/staff/customers/search',   label:'Search Customer',  icon:'search'    },
   { path:'/staff/sales',              label:'New Sale',         icon:'sale'      },

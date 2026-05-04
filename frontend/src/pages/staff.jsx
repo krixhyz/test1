@@ -102,6 +102,61 @@ function CustomerRegistration() {
   );
 }
 
+function CustomersPage() {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    api.getCustomers().then(setCustomers).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = customers.filter(c =>
+    [c.fullName, c.phone, c.email, c.address].some(v =>
+      (v || '').toLowerCase().includes(search.toLowerCase())
+    )
+  );
+
+  return (
+    <StaffLayout title="Customers">
+      <PageHeader title="Customers" subtitle="Customer profiles with linked vehicles" />
+      <Card>
+        <SearchBar value={search} onChange={setSearch} placeholder="Search by name, phone, email..." />
+        {loading ? <Loader /> : (
+          <Table
+            columns={[
+              { label: 'Name', key: 'fullName' },
+              { label: 'Phone', key: 'phone' },
+              { label: 'Email', render: c => c.email || '—' },
+              { label: 'Address', render: c => c.address || '—' },
+              {
+                label: 'Linked Vehicles',
+                render: c => (c.vehicles?.length
+                  ? c.vehicles.map(v => (
+                      <div key={v.id} className="vp-text-sm vp-tx2">
+                        {v.vehicleNumber} — {v.brand} {v.model}
+                      </div>
+                    ))
+                  : '—')
+              },
+              {
+                label: 'Action',
+                render: c => (
+                  <Button size="sm" onClick={() => { navigate('/staff/customers/' + c.id); window.location.reload(); }}>
+                    View Profile
+                  </Button>
+                )
+              }
+            ]}
+            data={filtered}
+            emptyMessage="No customers found."
+          />
+        )}
+      </Card>
+    </StaffLayout>
+  );
+}
+
 function CustomerSearch() {
   const [query,setQuery]=useState(''); const [type,setType]=useState('name');
   const [results,setResults]=useState([]); const [searched,setSearched]=useState(false); const [loading,setLoading]=useState(false);
@@ -355,4 +410,4 @@ function CreditReminders() {
   );
 }
 
-export { StaffDashboard, CustomerRegistration, CustomerSearch, CustomerDetails, PartsSale, SalesInvoices, CustomerReports, CreditReminders  };
+export { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, CustomerDetails, PartsSale, SalesInvoices, CustomerReports, CreditReminders  };
