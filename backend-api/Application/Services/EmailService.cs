@@ -84,12 +84,20 @@ public class EmailService : IEmailService
         if (string.IsNullOrWhiteSpace(customerEmail))
             return ApiResponse<object>.Fail("Customer email is not available.");
 
-        var emailFrom = _configuration["Email:From"] ?? "no-reply@vparts.com";
-        var smtpHost = _configuration["Email:SmtpHost"] ?? "localhost";
-        var smtpPort = int.TryParse(_configuration["Email:SmtpPort"], out var port) ? port : 25;
-        var smtpUser = _configuration["Email:SmtpUser"];
-        var smtpPass = _configuration["Email:SmtpPass"];
-        var enableSsl = bool.TryParse(_configuration["Email:EnableSsl"], out var ssl) && ssl;
+        string? GetCfg(params string[] keys) {
+            foreach (var k in keys) {
+                var v = _configuration[k];
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+            return null;
+        }
+
+        var emailFrom = GetCfg("Email:From", "Email:Sender", "EmailSettings:SenderEmail") ?? "no-reply@vparts.com";
+        var smtpHost = GetCfg("Email:SmtpHost", "EmailSettings:Host") ?? "localhost";
+        var smtpPort = int.TryParse(GetCfg("Email:SmtpPort", "EmailSettings:Port"), out var port) ? port : 25;
+        var smtpUser = GetCfg("Email:SmtpUser", "Email:Sender", "EmailSettings:SenderEmail");
+        var smtpPass = GetCfg("Email:SmtpPass", "Email:AppPassword", "EmailSettings:SenderPassword");
+        var enableSsl = bool.TryParse(GetCfg("Email:EnableSsl", "EmailSettings:EnableSsl"), out var ssl) && ssl;
 
         var subject = $"Your Invoice {invoice.InvoiceNumber} from VParts";
         var body = BuildInvoiceBody(invoice);
@@ -107,11 +115,14 @@ public class EmailService : IEmailService
             using var message = new MailMessage(emailFrom, customerEmail, subject, body) { IsBodyHtml = false };
             using var client = new SmtpClient(smtpHost, smtpPort) {
                 EnableSsl = enableSsl,
-                DeliveryMethod = SmtpDeliveryMethod.Network
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                UseDefaultCredentials = false
             };
 
             if (!string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)) {
                 client.Credentials = new NetworkCredential(smtpUser, smtpPass);
+            } else if (!string.Equals(smtpHost, "localhost", StringComparison.OrdinalIgnoreCase)) {
+                Console.WriteLine("Email service: SMTP credentials not provided for host " + smtpHost + ". Check configuration.");
             }
 
             await client.SendMailAsync(message);
