@@ -321,7 +321,9 @@ const api = {
 
   // Notifications
   getNotifications: async () => { const res = await safe(axiosClient.get('/notifications')); return unwrap(res) ?? []; },
+  getUnreadCount: async () => { const res = await safe(axiosClient.get('/notifications/unread-count')); return (unwrap(res)?.count) ?? 0; },
   markNotificationRead: async (id) => axiosClient.patch(`/notifications/${id}/read`),
+  markAllNotificationsRead: async () => axiosClient.patch('/notifications/mark-all-read'),
 
   // AI Predictions
   getPredictions: async (customerId) => { const res = await safe(axiosClient.get(`/ai/predictions/customer/${customerId}`)); return unwrap(res) ?? []; },

@@ -362,12 +362,16 @@ a:hover { color: var(--primary-hover); }
   padding: 18px 20px;
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition);
+  min-width: 0;
+  overflow: hidden;
 }
 .vp-dash-card:hover { box-shadow: var(--shadow); }
 
 .vp-dash-value {
   font-size: 28px; font-weight: 700;
-  color: var(--gray-900); line-height: 1.2;
+  color: var(--gray-900); line-height: 1.15;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .vp-dash-title {
   font-size: 12.5px; font-weight: 500;
@@ -638,6 +642,17 @@ a:hover { color: var(--primary-hover); }
 .vp-flex1 { flex: 1; min-width: 220px; }
 .vp-flex2 { flex: 2; min-width: 300px; }
 .vp-dash-sub { font-size: 12px; color: var(--red-500); font-weight: 600; margin-top: 2px; }
+
+@media (max-width: 960px) {
+  .vp-dash-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .vp-dash-value { font-size: 24px; }
+}
+
+@media (max-width: 560px) {
+  .vp-dash-grid { grid-template-columns: 1fr; }
+  .vp-dash-card { padding: 16px; }
+  .vp-dash-value { font-size: 22px; }
+}
 
 /* ── Vehicle cards ──────────────────────────────────────────── */
 .vp-vehicle-cards { display: flex; flex-direction: column; gap: 10px; }

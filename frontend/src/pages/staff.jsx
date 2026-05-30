@@ -1,8 +1,7 @@
 import { StaffLayout, AdminLayout, NavIcon } from '../components/layout.jsx';
 import { Icon, Button, Input, Select, Badge, StatusBadge, Card, DashboardCard, Loader, EmptyState, PageHeader, SearchBar, Alert, Modal, Table, FormRow, useToast } from '../components/common.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from '../utils.js';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { exportElementToPdf } from '../pdf.js';
 // ── Staff Pages ───────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
 
@@ -320,12 +319,13 @@ function PartsSale() {
       });
       const customer=customers.find(c=>c.id==customerId);
       setSuccessInvoice({
-        invoiceNumber: created.invoiceNumber,
-        customerName: customer?.fullName,
-        subtotal: created.subtotal,
-        discount: created.discount,
-        finalTotal: created.totalAmount,
-        paymentStatus: created.paymentStatus,
+        invoiceNumber:   created.invoiceNumber,
+        customerName:    customer?.fullName,
+        subtotal:        created.subtotal,
+        discount:        created.discount,
+        discountPercent: created.discountPercent ?? 0,
+        finalTotal:      created.totalAmount,
+        paymentStatus:   created.paymentStatus,
         date: new Date(created.date || Date.now()).toLocaleDateString(),
       });
       const latestParts = await api.getParts();
@@ -343,7 +343,7 @@ function PartsSale() {
           <p style={{marginBottom:16,color:'var(--tx2)'}}>Customer: <strong style={{color:'var(--tx)'}}>{successInvoice.customerName}</strong></p>
           <div className="vp-invoice-print-totals">
             <div className="vp-total-row"><span>Subtotal</span><span>{formatCurrency(successInvoice.subtotal)}</span></div>
-            {successInvoice.discount>0&&<div className="vp-total-row vp-success-color"><span>Loyalty Discount (10%)</span><span>- {formatCurrency(successInvoice.discount)}</span></div>}
+            {successInvoice.discount>0&&<div className="vp-total-row vp-success-color"><span>Loyalty Discount ({successInvoice.discountPercent}%)</span><span>- {formatCurrency(successInvoice.discount)}</span></div>}
             <div className="vp-total-row vp-total-final"><span>Final Total</span><span>{formatCurrency(successInvoice.finalTotal)}</span></div>
             <div className="vp-total-row"><span>Payment Status</span><span><StatusBadge status={successInvoice.paymentStatus}/></span></div>
           </div>
@@ -448,139 +448,238 @@ function SalesInvoices() {
 }
 
 function CustomerReports() {
-  const [reportType,setReportType]=useState('high-spenders'); const [fromDate,setFromDate]=useState(''); const [toDate,setToDate]=useState('');
-  const [data,setData]=useState([]); const [loading,setLoading]=useState(false); const [generated,setGenerated]=useState(false);
-  const today = new Date().toISOString().split('T')[0];
-  
-  const generate=async()=>{
-    setLoading(true);
-    setGenerated(false);
+  const [reportType, setReportType] = useState('high-spenders');
+  const [data,       setData]       = useState([]);
+  const [filtered,   setFiltered]   = useState([]);
+  const [search,     setSearch]     = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [generated,  setGenerated]  = useState(false);
+  const [error,      setError]      = useState('');
+  const [sortDir,    setSortDir]    = useState('desc'); // for primary metric
+
+  // Filter by search
+  React.useEffect(() => {
+    const q = search.toLowerCase();
+    setFiltered(q ? data.filter(r => (r.fullName||'').toLowerCase().includes(q)) : data);
+  }, [search, data]);
+
+  const generate = async () => {
+    setLoading(true); setGenerated(false); setError(''); setSearch('');
     try {
       let result = [];
       if (reportType === 'high-spenders') {
         const res = await api.getHighSpenders();
         result = (res || []).map(r => ({
-          fullName: r.fullName ?? r.FullName ?? '',
-          phone: r.phone ?? r.Phone ?? '',
-          totalSpent: r.totalSpent ?? r.TotalSpent ?? 0,
-          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
+          rank:         r.rank        ?? r.Rank        ?? 0,
+          customerId:   r.customerId  ?? r.CustomerId  ?? '',
+          fullName:     r.fullName    ?? r.FullName    ?? '',
+          phone:        r.phone       ?? r.Phone       ?? '',
+          totalSpent:   r.totalSpent  ?? r.TotalSpent  ?? 0,
+          invoiceCount: r.invoiceCount?? r.InvoiceCount?? 0,
         }));
       } else if (reportType === 'regulars') {
         const res = await api.getRegularCustomers();
         result = (res || []).map(r => ({
-          fullName: r.fullName ?? r.FullName ?? '',
-          phone: r.phone ?? r.Phone ?? '',
-          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
-          totalSpent: r.totalSpent ?? r.TotalSpent ?? 0,
+          rank:         r.rank        ?? r.Rank        ?? 0,
+          customerId:   r.customerId  ?? r.CustomerId  ?? '',
+          fullName:     r.fullName    ?? r.FullName    ?? '',
+          phone:        r.phone       ?? r.Phone       ?? '',
+          invoiceCount: r.invoiceCount?? r.InvoiceCount?? 0,
+          totalSpent:   r.totalSpent  ?? r.TotalSpent  ?? 0,
         }));
-      } else if (reportType === 'pending-credits') {
+      } else {
         const res = await api.getCreditOverdue();
         result = (res || []).map(r => ({
-          fullName: r.customerName ?? r.CustomerName ?? r.fullName ?? r.FullName ?? '',
-          phone: r.customerPhone ?? r.customerPhone ?? '',
-          pendingAmount: r.totalAmount ?? r.TotalAmount ?? 0,
-          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
-          creditInvoiceId: r.id ?? r.Id,
+          id:           r.id           ?? r.Id           ?? '',
+          customerId:   r.customerId   ?? r.CustomerId   ?? '',
+          fullName:     r.customerName ?? r.fullName     ?? '',
+          phone:        r.customerPhone?? r.phone        ?? '',
+          invoiceNumber:r.invoiceNumber?? '',
+          invoiceDate:  r.date         ?? r.Date         ?? '',
+          pendingAmount:r.totalAmount  ?? r.TotalAmount  ?? 0,
+          daysOverdue:  r.daysOverdue  ?? r.DaysOverdue  ?? 0,
         }));
       }
       setData(result);
-    } catch (err) {
+    } catch {
+      setError('Failed to generate report. Please try again.');
       setData([]);
     } finally {
       setLoading(false);
       setGenerated(true);
     }
   };
-  
+
+  const toggleSort = () => {
+    const dir = sortDir === 'desc' ? 'asc' : 'desc';
+    setSortDir(dir);
+    const sortKey = reportType === 'regulars' ? 'invoiceCount' : reportType === 'pending-credits' ? 'daysOverdue' : 'totalSpent';
+    setData(prev => [...prev].sort((a, b) => dir === 'desc' ? b[sortKey] - a[sortKey] : a[sortKey] - b[sortKey]));
+  };
+
+  const overdueColor = (days) => {
+    if (days >= 60) return { color: 'var(--error)', fontWeight: 700 };
+    if (days >= 30) return { color: '#f59e0b', fontWeight: 700 };
+    return { color: 'var(--tx2)' };
+  };
+
+  const sortArrow = sortDir === 'desc' ? ' ↓' : ' ↑';
+
+  const colsMap = {
+    'high-spenders': [
+      { label: 'Rank',        render: c => <span className="vp-fw6">#{c.rank}</span> },
+      { label: 'Customer Name',key: 'fullName' },
+      { label: 'Customer ID', render: c => <span className="vp-text-sm vp-tx3" style={{fontFamily:'monospace'}}>{String(c.customerId).slice(0,8)}…</span> },
+      { label: 'Phone',       key: 'phone' },
+      { label: <span style={{cursor:'pointer'}} onClick={toggleSort}>{'Total Spend' + sortArrow}</span>,
+        render: c => <span className="vp-fw6 vp-accent-color">{formatCurrency(c.totalSpent)}</span> },
+      { label: 'Invoices',    key: 'invoiceCount' },
+    ],
+    'regulars': [
+      { label: 'Rank',        render: c => <span className="vp-fw6">#{c.rank}</span> },
+      { label: 'Customer Name',key: 'fullName' },
+      { label: 'Customer ID', render: c => <span className="vp-text-sm vp-tx3" style={{fontFamily:'monospace'}}>{String(c.customerId).slice(0,8)}…</span> },
+      { label: 'Phone',       key: 'phone' },
+      { label: <span style={{cursor:'pointer'}} onClick={toggleSort}>{'Visit Count' + sortArrow}</span>,
+        render: c => <span className="vp-fw6">{c.invoiceCount}</span> },
+      { label: 'Total Spend', render: c => formatCurrency(c.totalSpent) },
+    ],
+    'pending-credits': [
+      { label: 'Customer Name',key: 'fullName' },
+      { label: 'Phone',        key: 'phone' },
+      { label: 'Invoice #',    key: 'invoiceNumber' },
+      { label: 'Invoice Date', render: c => formatDate(c.invoiceDate) },
+      { label: 'Amount Owed',  render: c => <span className="vp-error-color vp-fw6">{formatCurrency(c.pendingAmount)}</span> },
+      { label: <span style={{cursor:'pointer'}} onClick={toggleSort}>{'Days Overdue' + sortArrow}</span>,
+        render: c => <span style={overdueColor(c.daysOverdue)}>{c.daysOverdue} days</span> },
+    ],
+  };
+
   const downloadPDF = async () => {
     try {
       const element = document.getElementById('customer-report-content');
-      if (!element) return;
-      
-      const canvas = await html2canvas(element, { scale: 2 });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= 297;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= 297;
-      }
-      
-      const fileName = `Customer_Report_${reportType}_${fromDate}.pdf`;
-      pdf.save(fileName);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-    }
+      await exportElementToPdf({
+        element,
+        fileName: `Customer_Report_${reportType}.pdf`,
+        title: 'Customer Report',
+        subtitle: reportLabels[reportType] || 'Customer analytics',
+        accent: '#16a34a',
+      });
+    } catch (e) { console.error('PDF error', e); }
   };
-  
-  const colsMap={'high-spenders':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Total Spent',render:c=><span className="vp-fw6 vp-accent-color">{formatCurrency(c.totalSpent)}</span>},{label:'Invoices',key:'invoiceCount'}],'regulars':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Visit Count',render:c=><span className="vp-fw6">{c.invoiceCount}</span>},{label:'Total Spent',render:c=>formatCurrency(c.totalSpent)}],'pending-credits':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Pending Amount',render:c=><span className="vp-error-color vp-fw6">{formatCurrency(c.pendingAmount)}</span>},{label:'Credit Invoices',key:'invoiceCount'}]};
+
+  const reportLabels = { 'high-spenders': 'High Spenders', 'regulars': 'Regular Customers', 'pending-credits': 'Pending Credits' };
+
   return (
     <StaffLayout title="Customer Reports">
       <PageHeader title="Customer Reports" subtitle="Analyse customer data"/>
       <Card>
         <div className="vp-toolbar">
-          <Select label="" value={reportType} onChange={e=>setReportType(e.target.value)}><option value="high-spenders">High Spenders</option><option value="regulars">Regular Customers</option><option value="pending-credits">Pending Credits</option></Select>
-          <Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today}/>
-          <Input label="" type="date" value={toDate} onChange={e=>setToDate(e.target.value)} max={today}/>
+          <Select label="" value={reportType} onChange={e=>{setReportType(e.target.value);setGenerated(false);setData([]);setSearch('');}}>
+            <option value="high-spenders">High Spenders</option>
+            <option value="regulars">Regular Customers</option>
+            <option value="pending-credits">Pending Credits</option>
+          </Select>
           <Button onClick={generate}>Generate</Button>
-          {generated && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
+          {generated && data.length > 0 && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
         </div>
       </Card>
-      {loading&&<Loader text="Generating report..."/>}
-      {generated&&!loading&&<div id="customer-report-content"><Card style={{marginTop:16}}><div className="vp-section-title">{{  'high-spenders':'High Spenders','regulars':'Regular Customers','pending-credits':'Pending Credits'}[reportType]} — {data.length} records</div><Table columns={colsMap[reportType]} data={data} emptyMessage="No data for selected criteria."/></Card></div>}
+      {loading && <Loader text="Generating report..."/>}
+      {error && <Alert type="error" message={error}/>}
+      {generated && !loading && !error && (
+        <div id="customer-report-content">
+          <Card style={{marginTop:16}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12,flexWrap:'wrap'}}>
+              <div className="vp-section-title" style={{margin:0}}>{reportLabels[reportType]} — {filtered.length} record(s)</div>
+              <SearchBar value={search} onChange={setSearch} placeholder="Filter by customer name…"/>
+            </div>
+            {data.length === 0
+              ? <EmptyState message={`No ${reportLabels[reportType].toLowerCase()} found.`}/>
+              : <Table columns={colsMap[reportType]} data={filtered} emptyMessage="No matching customers."/>
+            }
+          </Card>
+        </div>
+      )}
     </StaffLayout>
   );
 }
 
 function CreditReminders() {
-  const [overdue,setOverdue]=useState([]); const [loading,setLoading]=useState(true); const [sent,setSent]=useState(new Set());
-  const {show,Toast}=useToast();
-  useEffect(()=>{Promise.all([api.getCreditOverdue(),api.getCustomers()]).then(([inv,customers])=>{const enriched=inv.map(i=>{const c=customers.find(c=>c.id===i.customerId);const d=Math.floor((new Date()-new Date(i.creditDueDate))/(1000*60*60*24));return{...i,customerEmail:c?.email,customerPhone:c?.phone,daysOverdue:d};});setOverdue(enriched);}).finally(()=>setLoading(false));}, []);
+  const [overdue,  setOverdue]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [sent,     setSent]     = useState(new Set());
+  const [search,   setSearch]   = useState('');
+  const { show, Toast } = useToast();
+
+  const overdueColor = (days) => {
+    if (days >= 60) return { color: 'var(--error)', fontWeight: 700 };
+    if (days >= 30) return { color: '#f59e0b',      fontWeight: 700 };
+    return { color: 'var(--tx2)' };
+  };
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const inv = await api.getCreditOverdue();
+      // Backend now sends daysOverdue; fall back to front-end calc for safety
+      const enriched = (inv || []).map(i => ({
+        ...i,
+        customerName: i.customerName ?? '',
+        daysOverdue: i.daysOverdue ?? Math.floor((new Date() - new Date(i.creditDueDate)) / 86400000),
+      }));
+      setOverdue(enriched);
+    } catch { setOverdue([]); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
   const handleSendAll = async () => {
     try {
       const res = await api.sendCreditReminders();
-      const count = res?.remindersSent ?? (res?.data?.remindersSent ?? 0) ?? 0;
+      const count = res?.remindersSent ?? res?.data?.remindersSent ?? 0;
       show(`${count} reminder(s) sent successfully`);
-      setLoading(true);
-      const inv = await api.getCreditOverdue();
-      const customers = await api.getCustomers();
-      const enriched = inv.map(i=>{const c=customers.find(c=>c.id===i.customerId);const d=Math.floor((new Date()-new Date(i.creditDueDate))/(1000*60*60*24));return{...i,customerEmail:c?.email,customerPhone:c?.phone,daysOverdue:d};});
-      setOverdue(enriched);
-    } catch (err) {
-      show('Failed to send reminders','error');
-    } finally { setLoading(false); }
+      await load();
+    } catch { show('Failed to send reminders', 'error'); }
   };
+
   const handleSendOne = async (inv) => {
     try {
       await api.sendCreditReminder(inv.id);
       show(`Reminder sent to ${inv.customerName}`);
       setSent(prev => new Set([...prev, inv.id]));
-    } catch (err) {
-      show('Failed to send reminder','error');
-    }
+    } catch { show('Failed to send reminder', 'error'); }
   };
-  const cols=[
-    {label:'Customer',key:'customerName'},{label:'Email',render:i=>i.customerEmail||'—'},
-    {label:'Invoice #',key:'invoiceNumber'},{label:'Due Date',render:i=>formatDate(i.creditDueDate)},
-    {label:'Amount Due',render:i=><span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span>},
-    {label:'Days Overdue',render:i=><span className="vp-error-color">{i.daysOverdue} days</span>},
-    {label:'Action',render:i=>sent.has(i.id)?<Badge color="green">Sent</Badge>:<Button size="sm" variant="secondary" onClick={()=>handleSendOne(i)}><Icon name="mail" size={13}/> Send</Button>},
+
+  const displayed = search
+    ? overdue.filter(i => (i.customerName||'').toLowerCase().includes(search.toLowerCase()))
+    : overdue;
+
+  const cols = [
+    { label: 'Customer',     render: i => <div><div className="vp-fw6">{i.customerName}</div><div className="vp-text-sm vp-tx3">{i.customerPhone||'—'}</div></div> },
+    { label: 'Invoice #',    key: 'invoiceNumber' },
+    { label: 'Invoice Date', render: i => formatDate(i.date) },
+    { label: 'Due Date',     render: i => formatDate(i.creditDueDate) },
+    { label: 'Amount Owed',  render: i => <span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span> },
+    { label: 'Days Overdue', render: i => <span style={overdueColor(i.daysOverdue)}>{i.daysOverdue} days</span> },
+    { label: 'Action',       render: i => sent.has(i.id)
+        ? <Badge color="green">Sent</Badge>
+        : <Button size="sm" variant="secondary" onClick={() => handleSendOne(i)}><Icon name="mail" size={13}/> Send</Button>
+    },
   ];
+
   return (
     <StaffLayout title="Credit Reminders">
       {Toast}
-      <PageHeader title="Credit Reminders" subtitle="Customers with overdue payments" action={<Button variant="secondary" onClick={handleSendAll}>Send Reminders</Button>} />
-      {overdue.length>0&&<Alert type="warning" message={`${overdue.length} customer(s) have overdue credit payments.`}/>}
-      <Card style={{marginTop:16}}>{loading?<Loader/>:<Table columns={cols} data={overdue} emptyMessage="No overdue credit payments."/>}</Card>
+      <PageHeader title="Credit Reminders" subtitle="Customers with overdue payments"
+        action={<Button variant="secondary" onClick={handleSendAll}>Send All Reminders</Button>}/>
+      {overdue.length > 0 && <Alert type="warning" message={`${overdue.length} customer(s) have overdue credit payments.`}/>}
+      <Card style={{marginTop:16}}>
+        <div style={{marginBottom:12}}>
+          <SearchBar value={search} onChange={setSearch} placeholder="Filter by customer name…"/>
+        </div>
+        {loading ? <Loader/> : <Table columns={cols} data={displayed} emptyMessage="No overdue credit payments."/>}
+      </Card>
     </StaffLayout>
   );
 }

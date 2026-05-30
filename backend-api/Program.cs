@@ -11,6 +11,7 @@ using WeatherAPI.Domain.Entities;
 using WeatherAPI.Infrastructure.Data;
 using WeatherAPI.Middleware;
 
+
 // Dev-only guard: stop stale WeatherAPI instances that keep port 5033 occupied.
 if (string.Equals(Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"), "Development", StringComparison.OrdinalIgnoreCase)) {
     var current = Process.GetCurrentProcess();
@@ -79,8 +80,8 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<AiPredictionService>();
-builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ICreditReminderService, CreditReminderService>();
+builder.Services.AddHostedService<CreditReminderBackgroundService>();
 
 builder.Services.AddCors(options => {
     options.AddPolicy("AllowAllOrigins", policy => {

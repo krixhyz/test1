@@ -49,6 +49,21 @@ public class SalesService {
 
         foreach (var item in dto.Items) await _inv.CheckLowStockAsync(item.PartId);
 
-        return ApiResponse<object>.Ok(invoice);
+        var response = new WeatherAPI.Application.DTOs.SalesInvoiceResponseDto {
+            Id              = invoice.Id,
+            InvoiceNumber   = invoice.InvoiceNumber,
+            CustomerId      = invoice.CustomerId,
+            StaffId         = invoice.StaffId,
+            Date            = invoice.Date,
+            Subtotal        = invoice.Subtotal,
+            Discount        = invoice.Discount,
+            DiscountPercent = invoice.Discount > 0 ? (int)(WeatherAPI.Application.Common.PricingConstants.LoyaltyDiscountRate * 100) : 0,
+            TotalAmount     = invoice.TotalAmount,
+            PaymentStatus   = invoice.PaymentStatus,
+            CreditDueDate   = invoice.CreditDueDate,
+            EmailSent       = invoice.EmailSent,
+        };
+
+        return ApiResponse<object>.Ok(response);
     }
 }

@@ -1,8 +1,7 @@
 import { AdminLayout } from '../components/layout.jsx';
 import { Button, Input, Select, Textarea, Badge, StatusBadge, stockStatus, Card, DashboardCard, Loader, EmptyState, PageHeader, SearchBar, Alert, Modal, ConfirmDialog, Table, FormRow, useToast } from '../components/common.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from '../utils.js';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import { exportElementToPdf } from '../pdf.js';
 // ── Admin Pages — Glassmorphism, no emojis ────────────────────
 import React, { useState, useEffect  } from 'react';
 
@@ -522,84 +521,103 @@ function PurchaseInvoices() {
 }
 
 function FinancialReports() {
-  const [report,setReport]=useState(null); const [loading,setLoading]=useState(true);
-  const [period,setPeriod]=useState('monthly'); const [fromDate,setFromDate]=useState(''); const [toDate,setToDate]=useState('');
-  const today = new Date().toISOString().split('T')[0];
-  
-  useEffect(()=>{
-    if(period==='daily'){
-      setFromDate(today);
-      setToDate(today);
-    }else{
-      setFromDate('');
-      setToDate('');
-    }
-  }, [period]);
-  
-  useEffect(()=>{setLoading(true);api.getFinancialReport(period, { fromDate, toDate }).then(setReport).finally(()=>setLoading(false));}, [period]);
-  
+  const today        = new Date().toISOString().split('T')[0];
+  const currentMonth = today.slice(0, 7);
+  const currentYear  = today.slice(0, 4);
+
+  const [period,   setPeriod]   = useState('monthly');
+  const [fromDate, setFromDate] = useState(currentMonth);
+  const [report,   setReport]   = useState(null);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState('');
+
+  // Derive default fromDate when period changes
+  const defaultFrom = period === 'daily' ? today : period === 'monthly' ? currentMonth : currentYear;
+
+  const buildParams = (p, f) => {
+    if (p === 'daily')   return { fromDate: f, toDate: f };
+    if (p === 'monthly') return { fromDate: f + '-01', toDate: f + '-31' };
+    return { fromDate: f + '-01-01', toDate: f + '-12-31' };
+  };
+
+  const fetchReport = (p, f) => {
+    setLoading(true); setError('');
+    api.getFinancialReport(p, buildParams(p, f))
+      .then(data => { setReport(data && typeof data === 'object' ? data : null); })
+      .catch(() => setError('Failed to load report. Please try again.'))
+      .finally(() => setLoading(false));
+  };
+
+  // Auto-load on mount and when period changes
+  useEffect(() => {
+    const f = defaultFrom;
+    setFromDate(f);
+    fetchReport(period, f);
+  }, [period]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleGenerate = () => fetchReport(period, fromDate);
+
   const downloadPDF = async () => {
     try {
       const element = document.getElementById('financial-report-content');
-      if (!element) return;
-      
-      const canvas = await html2canvas(element, { scale: 2 });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgWidth = 210;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= 297;
-      
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= 297;
-      }
-      
-      const fileName = `Financial_Report_${period}_${fromDate}.pdf`;
-      pdf.save(fileName);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-    }
+      await exportElementToPdf({
+        element,
+        fileName: `Financial_Report_${period}_${fromDate}.pdf`,
+        title: 'Financial Report',
+        subtitle: `${report.period} · ${report.invoiceCount} invoice(s)`,
+        accent: netProfit < 0 ? '#ef4444' : '#16a34a',
+      });
+    } catch (e) { console.error('PDF error', e); }
   };
-  
+
+  const hasData = report && report.invoiceCount > 0;
+  const netProfit = Number(report?.netProfit ?? 0);
+  const netProfitLabel = netProfit < 0 ? 'Net Loss' : 'Net Profit';
+  const netProfitBorder = netProfit < 0 ? 'var(--red-500)' : 'var(--accent)';
+
   return (
     <AdminLayout title="Financial Reports">
       <PageHeader title="Financial Reports" subtitle="Business performance summary"/>
       <Card>
         <div className="vp-toolbar">
-          <Select label="" value={period} onChange={e=>setPeriod(e.target.value)}><option value="daily">Daily</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></Select>
-          {period==='daily'&&<Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today}/>}
-          {period==='monthly'&&<Input label="" type="month" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today.slice(0,7)}/>}
-          {period==='yearly'&&<Input label="" type="text" placeholder="YYYY" value={fromDate} onChange={e=>/^\d{0,4}$/.test(e.target.value)&&setFromDate(e.target.value)} maxLength="4"/>}
-          <Button onClick={()=>{setLoading(true);api.getFinancialReport(period, { fromDate, toDate:period==='daily'?today:fromDate }).then(setReport).finally(()=>setLoading(false));}}>Generate</Button>
-          {report && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
+          <Select label="" value={period} onChange={e=>setPeriod(e.target.value)}>
+            <option value="daily">Daily</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </Select>
+          {period==='daily'   && <Input label="" type="date"  value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today}/>}
+          {period==='monthly' && <Input label="" type="month" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={currentMonth}/>}
+          {period==='yearly'  && <Input label="" type="text"  placeholder="YYYY" value={fromDate} onChange={e=>/^\d{0,4}$/.test(e.target.value)&&setFromDate(e.target.value)} maxLength="4"/>}
+          <Button onClick={handleGenerate}>Generate</Button>
+          {hasData && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
         </div>
       </Card>
-      {loading?<Loader/>:report&&(
+      {loading ? <Loader/> : error ? (
+        <Alert type="error" message={error}/>
+      ) : !hasData ? (
+        <Card style={{marginTop:16}}>
+          <EmptyState message={`No invoices found for the selected ${period} period.`}/>
+        </Card>
+      ) : (
         <div id="financial-report-content">
           <div className="vp-dash-grid">
-            <DashboardCard title="Total Sales"     value={formatCurrency(report.totalSales)}     accent="var(--success)"/>
-            <DashboardCard title="Total Purchases" value={formatCurrency(report.totalPurchases)} accent="#6366f1"/>
-            <DashboardCard title="Discount Given"  value={formatCurrency(report.discountGiven)}  accent="var(--warning)"/>
-            <DashboardCard title="Credit Sales"    value={formatCurrency(report.creditSales)}    accent="#f97316"/>
-            <DashboardCard title="Net Revenue"     value={formatCurrency(report.netRevenue)}     sub={`${report.invoiceCount} invoices`} accent="var(--accent)"/>
+            <DashboardCard title="Total Revenue"   value={formatCurrency(report.totalRevenue)}     sub="Post-discount actual" accent="var(--success)"/>
+            <DashboardCard title="Total Purchases" value={formatCurrency(report.totalPurchaseCost)} accent="#6366f1"/>
+            <DashboardCard title="Discount Given"  value={formatCurrency(report.discountGiven)}    accent="var(--warning)"/>
+            <DashboardCard title="Credit Sales"    value={formatCurrency(report.creditSales)}      accent="#f97316"/>
+            <DashboardCard title={netProfitLabel}    value={formatCurrency(netProfit)}               sub={`${report.invoiceCount} invoice(s)`} accent={netProfitBorder}/>
           </div>
           <Card>
-            <div className="vp-section-title">Summary</div>
+            <div className="vp-section-title">Summary — {report.period}</div>
             <Table columns={[{label:'Metric',render:r=>r.label},{label:'Amount',render:r=><span className="vp-fw6 vp-tx">{r.value}</span>}]}
               data={[
-                {label:'Total Sales Revenue',value:formatCurrency(report.totalSales)},
-                {label:'Total Purchases Cost',value:formatCurrency(report.totalPurchases)},
-                {label:'Discount Given',value:formatCurrency(report.discountGiven)},
-                {label:'Credit Sales',value:formatCurrency(report.creditSales)},
-                {label:'Net Revenue',value:formatCurrency(report.netRevenue)},
-                {label:'Number of Invoices',value:report.invoiceCount},
+                {label:'Total Revenue (post-discount)', value:formatCurrency(report.totalRevenue)},
+                {label:'Gross Sales (pre-discount)',    value:formatCurrency(report.totalSales)},
+                {label:'Total Purchase Cost',           value:formatCurrency(report.totalPurchaseCost)},
+                {label:'Discount Given',                value:formatCurrency(report.discountGiven)},
+                {label:'Credit Sales',                  value:formatCurrency(report.creditSales)},
+                {label:netProfitLabel,                  value:formatCurrency(netProfit)},
+                {label:'Number of Invoices',            value:report.invoiceCount},
               ]}/>
           </Card>
         </div>

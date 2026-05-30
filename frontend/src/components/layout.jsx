@@ -1,7 +1,7 @@
 import { Button } from '../components/common.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from '../utils.js';
 // ── Layout — Glassmorphism ────────────────────────────────────
-import React, { useState  } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 function NavIcon({ name, size=16 }) {
   const s = { stroke:'currentColor', strokeWidth:'1.8', fill:'none', strokeLinecap:'square' };
@@ -116,7 +116,7 @@ function Sidebar({ links, collapsed, onToggle }) {
   );
 }
 
-function Topbar({ title, onMenuClick }) {
+function Topbar({ title, onMenuClick, rightSlot }) {
   const user = auth.getUser();
   return (
     <header className="vp-topbar">
@@ -125,6 +125,7 @@ function Topbar({ title, onMenuClick }) {
         <span className="vp-topbar-title">{title}</span>
       </div>
       <div className="vp-topbar-right">
+        {rightSlot}
         {user && <div className="vp-topbar-user">
           <div className="vp-topbar-avatar">{(user.fullName||'U')[0].toUpperCase()}</div>
           <span className="vp-topbar-name">{user.fullName}</span>
@@ -134,20 +135,147 @@ function Topbar({ title, onMenuClick }) {
   );
 }
 
-function DashboardLayout({ links, title, children }) {
+// Notification bell with unread badge — polls every 30 s
+function NotificationBell() {
+  const [unread, setUnread] = useState(0);
+  const [open,   setOpen]   = useState(false);
+  const [items,  setItems]  = useState([]);
+  const panelRef = useRef(null);
+  const POLL_MS  = 30000;
+
+  const fetchCount = () => {
+    api.getUnreadCount().then(n => setUnread(n)).catch(() => {});
+  };
+
+  const fetchItems = () => {
+    api.getNotifications().then(data => {
+      const list = Array.isArray(data) ? data : (data?.data ?? []);
+      setItems(list.slice(0, 8));
+      setUnread(list.filter(n => !n.isRead).length);
+    }).catch(() => {});
+  };
+
+  // Initial load + poll
+  useEffect(() => {
+    fetchCount();
+    const id = setInterval(fetchCount, POLL_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Fetch full list when panel opens
+  useEffect(() => { if (open) fetchItems(); }, [open]);
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const markRead = async (id) => {
+    await api.markNotificationRead(id).catch(() => {});
+    setItems(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    setUnread(prev => Math.max(0, prev - 1));
+  };
+
+  const markAll = async () => {
+    await api.markAllNotificationsRead().catch(() => {});
+    setItems(prev => prev.map(n => ({ ...n, isRead: true })));
+    setUnread(0);
+  };
+
+  return (
+    <div ref={panelRef} style={{ position: 'relative', marginRight: 12 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          position: 'relative', background: 'none', border: 'none',
+          cursor: 'pointer', color: 'var(--tx2)', padding: '6px',
+          borderRadius: 8, display: 'flex', alignItems: 'center',
+        }}
+        title="Notifications"
+      >
+        <NavIcon name="bell" size={20} />
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: 2, right: 2,
+            background: 'var(--error)', color: '#fff',
+            borderRadius: '50%', fontSize: 10, fontWeight: 700,
+            minWidth: 16, height: 16, lineHeight: '16px',
+            textAlign: 'center', padding: '0 3px',
+          }}>{unread > 99 ? '99+' : unread}</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', right: 0, top: '110%', width: 340, zIndex: 999,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '12px 16px', borderBottom: '1px solid var(--border)',
+          }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>
+              Notifications {unread > 0 && <span style={{ color: 'var(--error)' }}>({unread} unread)</span>}
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {unread > 0 && (
+                <button onClick={markAll} style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)' }}>
+                  Mark all read
+                </button>
+              )}
+              <button onClick={() => { setOpen(false); navigate('/admin/notifications'); }}
+                style={{ fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--tx2)' }}>
+                View all
+              </button>
+            </div>
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {items.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: 'var(--tx3)', fontSize: 13 }}>No notifications</div>
+            ) : items.map(n => (
+              <div key={n.id} style={{
+                padding: '10px 16px', borderBottom: '1px solid var(--border)',
+                background: n.isRead ? 'transparent' : 'rgba(99,102,241,0.06)',
+                cursor: 'pointer',
+              }} onClick={() => !n.isRead && markRead(n.id)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: n.isRead ? 400 : 700, fontSize: 13, color: 'var(--tx)' }}>{n.title}</div>
+                    <div style={{ fontSize: 12, color: 'var(--tx2)', marginTop: 2 }}>{n.message}</div>
+                  </div>
+                  {!n.isRead && (
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', marginLeft: 8, marginTop: 4, flexShrink: 0 }}/>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DashboardLayout({ links, title, children, showBell = false }) {
   const [collapsed, setCollapsed] = useState(false);
+  const rightSlot = showBell ? <NotificationBell /> : null;
   return (
     <div className={`vp-layout ${collapsed ? 'vp-layout-collapsed' : ''}`}>
       <Sidebar links={links} collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       <div className="vp-main-area">
-        <Topbar title={title} onMenuClick={() => setCollapsed(c => !c)} />
+        <Topbar title={title} onMenuClick={() => setCollapsed(c => !c)} rightSlot={rightSlot} />
         <main className="vp-main-content">{children}</main>
       </div>
     </div>
   );
 }
 
-function AdminLayout({ children, title='Admin Panel' })       { return <DashboardLayout links={adminLinks}    title={title}>{children}</DashboardLayout>; }
+function AdminLayout({ children, title='Admin Panel' })       { return <DashboardLayout links={adminLinks}    title={title} showBell={true}>{children}</DashboardLayout>; }
 function StaffLayout({ children, title='Staff Panel' })       { return <DashboardLayout links={staffLinks}    title={title}>{children}</DashboardLayout>; }
 function CustomerLayout({ children, title='My Account' })     { return <DashboardLayout links={customerLinks} title={title}>{children}</DashboardLayout>; }
 

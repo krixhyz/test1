@@ -5,7 +5,7 @@ public static class PricingConstants
     /// <summary>
     /// Loyalty discount threshold - customers qualify for loyalty discount if subtotal exceeds this amount
     /// </summary>
-    public const decimal LoyaltyThreshold = 10000m; // Rs 10,000
+    public const decimal LoyaltyThreshold = 5000m; // Rs 5,000
 
     /// <summary>
     /// Loyalty discount rate - 10% discount for qualifying purchases

@@ -63,9 +63,9 @@ public class SalesInvoicesController : ControllerBase {
 
         var res = await _sales.CreateSalesInvoiceAsync(dto, staffId);
         if (!res.Success) return BadRequest(res);
-        var invoiceObj = res.Data as SalesInvoice;
-        if (invoiceObj == null) return Ok(res);
-        return CreatedAtAction(nameof(GetById), new { id = invoiceObj.Id }, ApiResponse<SalesInvoice>.Ok(invoiceObj, "Invoice created."));
+        var invoiceDto = res.Data as WeatherAPI.Application.DTOs.SalesInvoiceResponseDto;
+        if (invoiceDto == null) return Ok(res);
+        return CreatedAtAction(nameof(GetById), new { id = invoiceDto.Id }, ApiResponse<WeatherAPI.Application.DTOs.SalesInvoiceResponseDto>.Ok(invoiceDto, "Invoice created."));
     }
 
     [HttpPost("{id}/send-email")]

@@ -2,5 +2,6 @@ namespace WeatherAPI.Application.Interfaces;
 
 public interface ICreditReminderService
 {
-    Task SendCreditRemindersAsync();
+    Task<int> SendCreditRemindersAsync();
+    Task<bool> SendCreditReminderAsync(Guid invoiceId);
 }
