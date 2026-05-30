@@ -24,12 +24,27 @@ public class EmailService : IEmailService
     {
         try
         {
-            var emailFrom = _configuration["Email:From"] ?? "no-reply@vparts.com";
-            var smtpHost = _configuration["Email:SmtpHost"] ?? "localhost";
-            var smtpPort = int.TryParse(_configuration["Email:SmtpPort"], out var port) ? port : 25;
-            var smtpUser = _configuration["Email:SmtpUser"];
-            var smtpPass = _configuration["Email:SmtpPass"];
-            var enableSsl = bool.TryParse(_configuration["Email:EnableSsl"], out var ssl) && ssl;
+            // Support multiple config keys (user may use different secret names)
+            string? GetCfg(params string[] keys) {
+                foreach (var k in keys) {
+                    var v = _configuration[k];
+                    if (!string.IsNullOrWhiteSpace(v)) return v;
+                }
+                return null;
+            }
+
+            var emailFrom = GetCfg("Email:From", "Email:Sender", "EmailSettings:SenderEmail") ?? "no-reply@vparts.com";
+            var smtpHost = GetCfg("Email:SmtpHost", "EmailSettings:Host") ?? "localhost";
+            var smtpPort = int.TryParse(GetCfg("Email:SmtpPort", "EmailSettings:Port"), out var port) ? port : 25;
+            var smtpUser = GetCfg("Email:SmtpUser", "Email:Sender", "EmailSettings:SenderEmail");
+            var smtpPass = GetCfg("Email:SmtpPass", "Email:AppPassword", "EmailSettings:SenderPassword");
+            var enableSsl = bool.TryParse(GetCfg("Email:EnableSsl", "EmailSettings:EnableSsl"), out var ssl) && ssl;
+
+            // Basic validation to give clearer errors earlier
+            if (string.IsNullOrWhiteSpace(to) || string.IsNullOrWhiteSpace(emailFrom)) {
+                Console.WriteLine("Email send failed: missing to or from address.");
+                return false;
+            }
 
             using var message = new MailMessage(emailFrom, to, subject, body) { IsBodyHtml = false };
             using var client = new SmtpClient(smtpHost, smtpPort) {
@@ -39,6 +54,10 @@ public class EmailService : IEmailService
 
             if (!string.IsNullOrWhiteSpace(smtpUser) && !string.IsNullOrWhiteSpace(smtpPass)) {
                 client.Credentials = new NetworkCredential(smtpUser, smtpPass);
+            } else {
+                // If no credentials provided, ensure host is localhost (relay) otherwise warn
+                if (!string.Equals(smtpHost, "localhost", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine("Email service: SMTP credentials not provided for host " + smtpHost + ". Check configuration.");
             }
 
             await client.SendMailAsync(message);
