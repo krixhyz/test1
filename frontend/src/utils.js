@@ -6,26 +6,76 @@ const axiosClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Safe localStorage wrapper to prevent crashes in private/incognito modes
+const storage = (() => {
+  const inMemory = {};
+  const isSupported = () => {
+    try {
+      const key = '__test_storage__';
+      localStorage.setItem(key, key);
+      localStorage.removeItem(key);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+  const supported = isSupported();
+  return {
+    getItem: (key) => {
+      if (supported) {
+        try {
+          return localStorage.getItem(key);
+        } catch {
+          return inMemory[key] || null;
+        }
+      }
+      return inMemory[key] || null;
+    },
+    setItem: (key, value) => {
+      if (supported) {
+        try {
+          localStorage.setItem(key, value);
+          return;
+        } catch {}
+      }
+      inMemory[key] = value;
+    },
+    removeItem: (key) => {
+      if (supported) {
+        try {
+          localStorage.removeItem(key);
+          return;
+        } catch {}
+      }
+      delete inMemory[key];
+    }
+  };
+})();
+
 // Attach JWT token automatically to every request
 axiosClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('vp_token');
+  const token = storage.getItem('vp_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
 // ── Auth helpers ─────────────────────────────────────────────
 const auth = {
-  getUser: () => { try { return JSON.parse(localStorage.getItem('vp_user') || 'null'); } catch { return null; } },
-  getToken: () => localStorage.getItem('vp_token'),
+  getUser: () => { try { return JSON.parse(storage.getItem('vp_user') || 'null'); } catch { return null; } },
+  getToken: () => { try { return storage.getItem('vp_token'); } catch { return null; } },
   setAuth: (user, token) => {
-    localStorage.setItem('vp_user', JSON.stringify(user));
-    localStorage.setItem('vp_token', token);
+    try {
+      storage.setItem('vp_user', JSON.stringify(user));
+      storage.setItem('vp_token', token);
+    } catch {}
   },
   clearAuth: () => {
-    localStorage.removeItem('vp_user');
-    localStorage.removeItem('vp_token');
+    try {
+      storage.removeItem('vp_user');
+      storage.removeItem('vp_token');
+    } catch {}
   },
-  isLoggedIn: () => !!localStorage.getItem('vp_token'),
+  isLoggedIn: () => { try { return !!storage.getItem('vp_token'); } catch { return false; } },
 };
 
 // ── Navigation ────────────────────────────────────────────────
@@ -213,6 +263,7 @@ const api = {
     }));
   },
   createSalesInvoice: async (data) => { const res = await axiosClient.post('/salesinvoices', data); return unwrap(res); },
+  sendInvoiceEmail: async (invoiceId) => { const res = await axiosClient.post(`/salesinvoices/${invoiceId}/send-email`); return unwrap(res); },
   getCustomerInvoices: async (customerId) => { const res = await safe(axiosClient.get(`/salesinvoices/customer/${customerId}`)); return unwrap(res) ?? []; },
 
   // Purchase Invoices
@@ -285,6 +336,13 @@ const api = {
   getCreditOverdue: async () => { const res = await safe(axiosClient.get('/reports/customers/pending-credits')); return unwrap(res) ?? []; },
   getHighSpenders: async () => { const res = await safe(axiosClient.get('/reports/customers/high-spenders')); return unwrap(res) ?? []; },
   getRegularCustomers: async () => { const res = await safe(axiosClient.get('/reports/customers/regulars')); return unwrap(res) ?? []; },
+  sendCreditReminders: async () => { const res = await axiosClient.post('/credits/send-reminders'); return unwrap(res); },
+  sendCreditReminder: async (invoiceId) => { const res = await axiosClient.post(`/credits/send-reminder/${invoiceId}`); return unwrap(res); },
+  getEmailLogs: async () => { const res = await safe(axiosClient.get('/emaillogs')); return unwrap(res) ?? []; },
+  seedEmailLogs: async () => { const res = await axiosClient.post('/emaillogs/seed'); return unwrap(res); },
+  // Dev endpoints (no-auth in DEBUG) to help testing UI evidence
+  getDevEmailLogs: async () => { const res = await safe(axiosClient.get('/dev/emaillogs')); return unwrap(res) ?? []; },
+  seedDevEmailLogs: async () => { const res = await axiosClient.post('/dev/emaillogs/seed'); return unwrap(res); },
 
   // Admin dashboard stats (computed from multiple endpoints — admin only)
   getAdminStats: async () => {
@@ -333,9 +391,15 @@ const api = {
 
   // Backward compat alias — use getAdminStats for admin, getStaffStats for staff
   getStats: async () => {
-    const user = JSON.parse(localStorage.getItem('vp_user') || 'null');
+    const user = JSON.parse(storage.getItem('vp_user') || 'null');
     return user?.role === 'Admin' ? api.getAdminStats() : api.getStaffStats();
   },
+
+  // Payments
+  initiateEsewa: async (invoiceId) => { const res = await axiosClient.post(`/payment/esewa/initiate/${invoiceId}`); return unwrap(res); },
+  verifyEsewa: async (data, invoiceId) => { const res = await axiosClient.post(`/payment/esewa/verify?data=${data}&invoiceId=${invoiceId}`); return unwrap(res); },
+  initiateKhalti: async (invoiceId) => { const res = await axiosClient.post(`/payment/khalti/initiate/${invoiceId}`); return unwrap(res); },
+  verifyKhalti: async (pidx, invoiceId) => { const res = await axiosClient.post(`/payment/khalti/verify?pidx=${pidx}&invoiceId=${invoiceId}`); return unwrap(res); }
 };
 
 export { auth, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO, api };

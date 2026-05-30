@@ -1,9 +1,10 @@
 import { CustomerDashboard, CustomerProfile, MyVehicles, BookAppointment, RequestUnavailablePart, MyHistory, SubmitReview, PartFailurePrediction } from './pages/customer.jsx';
-import { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, PartsSale, SalesInvoices, CustomerDetails, CustomerReports, CreditReminders } from './pages/staff.jsx';
-import { AdminDashboard, StaffManagement, VendorManagement, PartsManagement, PurchaseInvoices, FinancialReports, LowStockAlerts, AdminNotifications } from './pages/admin.jsx';
+import { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, PartsSale, SalesInvoices, CustomerDetails, CustomerReports, CreditReminders, StaffAppointments } from './pages/staff.jsx';
+import { AdminDashboard, StaffManagement, VendorManagement, PartsManagement, PurchaseInvoices, FinancialReports, LowStockAlerts, AdminNotifications, EmailLogsPage } from './pages/admin.jsx';
 import { Login, Register, Home } from './pages/public.jsx';
 import { ProtectedRoute } from './components/layout.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from './utils.js';
+
 // ── App Router ────────────────────────────────────────────────
 import React, { useState, useEffect  } from 'react';
 
@@ -17,14 +18,17 @@ const routes = {
   '/admin/vendors':                () => <ProtectedRoute allowedRoles={['Admin']}><VendorManagement /></ProtectedRoute>,
   '/admin/parts':                  () => <ProtectedRoute allowedRoles={['Admin']}><PartsManagement /></ProtectedRoute>,
   '/admin/purchase-invoices':      () => <ProtectedRoute allowedRoles={['Admin']}><PurchaseInvoices /></ProtectedRoute>,
+  '/admin/appointments':           () => <ProtectedRoute allowedRoles={['Admin']}><StaffAppointments isAdmin={true} /></ProtectedRoute>,
   '/admin/financial-reports':      () => <ProtectedRoute allowedRoles={['Admin']}><FinancialReports /></ProtectedRoute>,
   '/admin/low-stock':              () => <ProtectedRoute allowedRoles={['Admin']}><LowStockAlerts /></ProtectedRoute>,
   '/admin/notifications':          () => <ProtectedRoute allowedRoles={['Admin']}><AdminNotifications /></ProtectedRoute>,
+  '/admin/email-logs':             () => <ProtectedRoute allowedRoles={['Admin']}><EmailLogsPage /></ProtectedRoute>,
 
   '/staff/dashboard':              () => <ProtectedRoute allowedRoles={['Staff']}><StaffDashboard /></ProtectedRoute>,
   '/staff/customers':              () => <ProtectedRoute allowedRoles={['Staff']}><CustomersPage /></ProtectedRoute>,
   '/staff/customers/register':     () => <ProtectedRoute allowedRoles={['Staff']}><CustomerRegistration /></ProtectedRoute>,
   '/staff/customers/search':       () => <ProtectedRoute allowedRoles={['Staff']}><CustomerSearch /></ProtectedRoute>,
+  '/staff/appointments':           () => <ProtectedRoute allowedRoles={['Staff']}><StaffAppointments /></ProtectedRoute>,
   '/staff/sales':                  () => <ProtectedRoute allowedRoles={['Staff']}><PartsSale /></ProtectedRoute>,
   '/staff/invoices':               () => <ProtectedRoute allowedRoles={['Staff']}><SalesInvoices /></ProtectedRoute>,
   '/staff/customer-reports':       () => <ProtectedRoute allowedRoles={['Staff']}><CustomerReports /></ProtectedRoute>,

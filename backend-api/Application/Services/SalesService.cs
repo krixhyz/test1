@@ -34,7 +34,7 @@ public class SalesService {
         invoice.Subtotal = subtotal;
         
         // Feature 21: Loyalty discount
-        if (subtotal > 5000) invoice.Discount = subtotal * 0.10m;
+        if (subtotal > WeatherAPI.Application.Common.PricingConstants.LoyaltyThreshold) invoice.Discount = subtotal * WeatherAPI.Application.Common.PricingConstants.LoyaltyDiscountRate;
         else invoice.Discount = 0;
 
         invoice.TotalAmount = subtotal - invoice.Discount;

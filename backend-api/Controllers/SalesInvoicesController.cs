@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using WeatherAPI.Application.Services;
+using WeatherAPI.Application.Interfaces;
 using WeatherAPI.Application.DTOs;
 using WeatherAPI.Infrastructure.Data;
 using WeatherAPI.Application.Common;
@@ -14,7 +15,14 @@ namespace WeatherAPI.Controllers;
 [Authorize(Roles = "Staff,Admin")]
 public class SalesInvoicesController : ControllerBase {
     private readonly ApplicationDbContext _db;
-    public SalesInvoicesController(ApplicationDbContext db) { _db = db; }
+    private readonly SalesService _sales;
+    private readonly IEmailService _emailService;
+
+    public SalesInvoicesController(ApplicationDbContext db, SalesService sales, IEmailService emailService) { 
+        _db = db; 
+        _sales = sales; 
+        _emailService = emailService; 
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll() =>
@@ -46,36 +54,23 @@ public class SalesInvoicesController : ControllerBase {
         if (!Guid.TryParse(staffIdStr, out var staffId)) return Unauthorized();
         if (dto.Items == null || dto.Items.Count == 0)
             return BadRequest(ApiResponse<object>.Fail("At least one item is required."));
-        if ((dto.PaymentStatus == "Credit" || dto.PaymentStatus == "Partial") && dto.CreditDueDate == null)
-            return BadRequest(ApiResponse<object>.Fail("Credit due date is required for Credit or Partial payment."));
+        if (dto.PaymentStatus == "Credit" || dto.PaymentStatus == "Partial") {
+            if (dto.CreditDueDate == null)
+                return BadRequest(ApiResponse<object>.Fail("Credit due date is required for Credit or Partial payment."));
+            if (dto.CreditDueDate.Value.Date < DateTime.Today)
+                return BadRequest(ApiResponse<object>.Fail("Credit due date cannot be in the past."));
+        }
 
-        await using var tx = await _db.Database.BeginTransactionAsync();
-        try {
-            decimal subtotal = 0;
-            var invoiceItems = new List<SalesInvoiceItem>();
-            foreach (var item in dto.Items) {
-                var part = await _db.Parts.FindAsync(item.PartId);
-                if (part == null) return BadRequest(ApiResponse<object>.Fail($"Part {item.PartId} not found."));
-                if (part.StockQuantity < item.Quantity)
-                    return BadRequest(ApiResponse<object>.Fail($"Insufficient stock for {part.PartName}. Available: {part.StockQuantity}"));
-                part.StockQuantity -= item.Quantity;
-                subtotal += part.UnitPrice * item.Quantity;
-                invoiceItems.Add(new SalesInvoiceItem { PartId = part.Id, Quantity = item.Quantity, UnitPrice = part.UnitPrice });
-                if (part.StockQuantity <= part.ReorderLevel)
-                    _db.Notifications.Add(new Notification { Title = "Low Stock Alert", Message = $"{part.PartName} stock is low ({part.StockQuantity} remaining).", Type = "LowStock" });
-            }
-            var discount = subtotal > 5000 ? subtotal * 0.10m : 0;
-            var invoice = new SalesInvoice {
-                CustomerId = dto.CustomerId, StaffId = staffId,
-                InvoiceNumber = $"INV-{DateTime.UtcNow:yyyyMMddHHmmss}",
-                Subtotal = subtotal, Discount = discount, TotalAmount = subtotal - discount,
-                PaymentStatus = dto.PaymentStatus, CreditDueDate = dto.CreditDueDate,
-                Items = invoiceItems
-            };
-            _db.SalesInvoices.Add(invoice);
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
-            return CreatedAtAction(nameof(GetById), new { id = invoice.Id }, ApiResponse<SalesInvoice>.Ok(invoice, "Invoice created."));
-        } catch { await tx.RollbackAsync(); throw; }
+        var res = await _sales.CreateSalesInvoiceAsync(dto, staffId);
+        if (!res.Success) return BadRequest(res);
+        var invoiceObj = res.Data as SalesInvoice;
+        if (invoiceObj == null) return Ok(res);
+        return CreatedAtAction(nameof(GetById), new { id = invoiceObj.Id }, ApiResponse<SalesInvoice>.Ok(invoiceObj, "Invoice created."));
+    }
+
+    [HttpPost("{id}/send-email")]
+    public async Task<IActionResult> SendEmail(Guid id) {
+        var result = await _emailService.SendSalesInvoiceEmailAsync(id);
+        return result.Success ? Ok(result) : BadRequest(result);
     }
 }

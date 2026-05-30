@@ -72,14 +72,40 @@ function Register() {
 
   const validate = () => {
     const e = {};
-    if (!form.fullName) e.fullName = 'Required';
-    if (!form.phone) e.phone = 'Required';
-    if (!form.email) e.email = 'Required';
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Invalid email';
-    if (!form.password) e.password = 'Required';
-    else if (form.password.length < 6) e.password = 'Min. 6 characters';
-    if (form.password !== form.confirmPassword) e.confirmPassword = 'Passwords do not match';
-    if (!form.vehicleNumber) e.vehicleNumber = 'Required';
+    if (!form.fullName) {
+      e.fullName = 'Required';
+    } else if (form.fullName.trim().length < 3) {
+      e.fullName = 'Name must be at least 3 characters';
+    }
+
+    const cleanPhone = form.phone.replace(/[^\d+]/g, '').replace(/^\+?977/, '').replace(/^0/, '');
+    if (!form.phone) {
+      e.phone = 'Required';
+    } else if (!/^\d{10}$/.test(cleanPhone)) {
+      e.phone = 'Invalid Nepal phone number (must be 10 digits)';
+    }
+
+    if (!form.email) {
+      e.email = 'Required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Invalid email address';
+    }
+
+    if (!form.password) {
+      e.password = 'Required';
+    } else if (form.password.length < 6) {
+      e.password = 'Min. 6 characters';
+    }
+
+    if (form.password !== form.confirmPassword) {
+      e.confirmPassword = 'Passwords do not match';
+    }
+
+    if (!form.vehicleNumber) {
+      e.vehicleNumber = 'Required';
+    } else if (form.vehicleNumber.trim().length < 4) {
+      e.vehicleNumber = 'Invalid vehicle number';
+    }
     return e;
   };
 

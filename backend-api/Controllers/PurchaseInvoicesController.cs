@@ -37,8 +37,12 @@ public class PurchaseInvoicesController : ControllerBase {
 
         decimal total = 0;
         foreach (var item in dto.Items) {
+            if (item.Quantity <= 0) return BadRequest(ApiResponse<object>.Fail($"Invalid quantity for part {item.PartId}. Quantity must be greater than zero."));
+            if (item.UnitCost < 0) return BadRequest(ApiResponse<object>.Fail($"Invalid unit cost for part {item.PartId}. Unit cost cannot be negative."));
+
             var part = await _db.Parts.FindAsync(item.PartId);
             if (part == null) return NotFound(ApiResponse<object>.Fail($"Part {item.PartId} not found"));
+
             part.StockQuantity += item.Quantity;
             var lineTotal = item.Quantity * item.UnitCost;
             total += lineTotal;

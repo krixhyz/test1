@@ -65,11 +65,19 @@ public class CustomersController : ControllerBase {
             if (dupVehicle) return BadRequest(ApiResponse<object>.Fail("Vehicle number already registered."));
         }
 
+        if (!PhoneHelper.IsNepalPhoneNumber(dto.Phone)) {
+            return BadRequest(ApiResponse<object>.Fail("Phone number must be a Nepal phone number."));
+        }
+
+        var normalizedPhone = PhoneHelper.NormalizePhoneNumber(dto.Phone);
+        var dupPhone = await _userManager.Users.AsNoTracking().AnyAsync(u => u.PhoneNumber == normalizedPhone);
+        if (dupPhone) return BadRequest(ApiResponse<object>.Fail("Phone number already registered."));
+
         var user = new ApplicationUser {
-            UserName = dto.Email ?? dto.Phone,
-            Email = dto.Email ?? $"{dto.Phone}@vparts.local",
+            UserName = dto.Email ?? normalizedPhone,
+            Email = dto.Email ?? $"{normalizedPhone}@vparts.local",
             FullName = dto.FullName,
-            PhoneNumber = dto.Phone
+            PhoneNumber = normalizedPhone
         };
         await using var tx = await _db.Database.BeginTransactionAsync();
         var res = await _userManager.CreateAsync(user, dto.Password);
@@ -103,13 +111,23 @@ public class CustomersController : ControllerBase {
             ApiResponse<object>.Ok(new { customer.Id, user.FullName, user.PhoneNumber }));
     }
 
-    [Authorize(Roles = "Staff,Admin")]
+    [Authorize]
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(Guid id, UpdateCustomerDto dto) {
+        if (!await CanAccessCustomer(id)) return Forbid();
+
         var customer = await _db.Customers.Include(c => c.User).FirstOrDefaultAsync(c => c.Id == id);
         if (customer == null) return NotFound(ApiResponse<object>.Fail("Customer not found."));
+        if (!PhoneHelper.IsNepalPhoneNumber(dto.Phone)) {
+            return BadRequest(ApiResponse<object>.Fail("Phone number must be a Nepal phone number."));
+        }
+
+        var normalizedPhone = PhoneHelper.NormalizePhoneNumber(dto.Phone);
+        var dupPhone = await _userManager.Users.AsNoTracking().AnyAsync(u => u.PhoneNumber == normalizedPhone && u.Id != customer.UserId);
+        if (dupPhone) return BadRequest(ApiResponse<object>.Fail("Phone number already registered."));
+
         customer.User.FullName = dto.FullName;
-        customer.User.PhoneNumber = dto.Phone;
+        customer.User.PhoneNumber = normalizedPhone;
         if (dto.Email != null) customer.User.Email = dto.Email;
         customer.Address = dto.Address ?? string.Empty;
         await _userManager.UpdateAsync(customer.User);

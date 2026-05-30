@@ -30,7 +30,9 @@ public class PartsController : ControllerBase {
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetLowStock() =>
         Ok(ApiResponse<object>.Ok(await _db.Parts.AsNoTracking().Include(p => p.Vendor)
-            .Where(p => p.IsActive && p.StockQuantity <= p.ReorderLevel).ToListAsync()));
+            .Where(p => p.IsActive && p.StockQuantity <= p.ReorderLevel)
+            .Select(p => new { p.Id, p.PartName, p.PartCode, p.Category, p.StockQuantity, p.ReorderLevel, p.UnitPrice, VendorName = p.Vendor != null ? p.Vendor.VendorName : "N/A" })
+            .ToListAsync()));
 
     [HttpPost]
     [Authorize(Roles = "Admin")]

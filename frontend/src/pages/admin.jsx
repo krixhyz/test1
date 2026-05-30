@@ -1,6 +1,8 @@
 import { AdminLayout } from '../components/layout.jsx';
 import { Button, Input, Select, Textarea, Badge, StatusBadge, stockStatus, Card, DashboardCard, Loader, EmptyState, PageHeader, SearchBar, Alert, Modal, ConfirmDialog, Table, FormRow, useToast } from '../components/common.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from '../utils.js';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 // ── Admin Pages — Glassmorphism, no emojis ────────────────────
 import React, { useState, useEffect  } from 'react';
 
@@ -27,6 +29,11 @@ function AdminDashboard() {
         <DashboardCard title="Today's Sales"     value={formatCurrency(stats.todaySales)}    accent="var(--success)" />
         <DashboardCard title="Monthly Revenue"   value={formatCurrency(stats.monthlyRevenue)} accent="#f59e0b" />
         <DashboardCard title="Pending Credit"    value={formatCurrency(stats.pendingCredit)} accent="#f97316" />
+      </div>
+      <div style={{display:'flex',gap:12,marginBottom:24}}>
+        <Button variant="outline" onClick={()=>navigate('/admin/email-logs')}>Email Logs</Button>
+        <Button variant="outline" onClick={()=>navigate('/admin/low-stock')}>Low Stock Alerts</Button>
+        <Button variant="outline" onClick={()=>navigate('/admin/financial-reports')}>Financial Reports</Button>
       </div>
       <div className="vp-dash-row">
         <Card className="vp-flex2">
@@ -68,7 +75,32 @@ function StaffManagement() {
   useEffect(() => { api.getStaff().then(setStaff).finally(() => setLoading(false)); }, []);
   const filtered = staff.filter(s => [s.fullName,s.email,s.phone,s.position].some(v => v?.toLowerCase().includes(search.toLowerCase())));
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
-  const validate = () => { const e={}; if(!form.fullName) e.fullName='Required'; if(!form.email) e.email='Required'; if(!form.phone) e.phone='Required'; if(!form.position) e.position='Required'; return e; };
+  const validate = () => {
+    const e = {};
+    if (!form.fullName) {
+      e.fullName = 'Required';
+    } else if (form.fullName.trim().length < 3) {
+      e.fullName = 'Name must be at least 3 characters';
+    }
+
+    const cleanPhone = form.phone.replace(/[^\d+]/g, '').replace(/^\+?977/, '').replace(/^0/, '');
+    if (!form.phone) {
+      e.phone = 'Required';
+    } else if (!/^\d{10}$/.test(cleanPhone)) {
+      e.phone = 'Invalid Nepal phone number (must be 10 digits)';
+    }
+
+    if (!form.email) {
+      e.email = 'Required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Invalid email address';
+    }
+
+    if (!form.position) {
+      e.position = 'Required';
+    }
+    return e;
+  };
   const handleSave = async () => {
     const e = validate(); if(Object.keys(e).length){setErrors(e);return;}
     try {
@@ -157,7 +189,26 @@ function VendorManagement() {
   useEffect(()=>{api.getVendors().then(setVendors).finally(()=>setLoading(false));}, []);
   const filtered=vendors.filter(v=>[v.vendorName,v.contactPerson,v.phone].some(x=>x?.toLowerCase().includes(search.toLowerCase())));
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  const validate=()=>{const e={};if(!form.vendorName)e.vendorName='Required';if(!form.phone)e.phone='Required';return e;};
+  const validate = () => {
+    const e = {};
+    if (!form.vendorName) {
+      e.vendorName = 'Required';
+    } else if (form.vendorName.trim().length < 3) {
+      e.vendorName = 'Vendor name must be at least 3 characters';
+    }
+
+    const cleanPhone = form.phone.replace(/[^\d+]/g, '').replace(/^\+?977/, '').replace(/^0/, '');
+    if (!form.phone) {
+      e.phone = 'Required';
+    } else if (!/^\d{10}$/.test(cleanPhone) && !/^\d{9}$/.test(cleanPhone)) {
+      e.phone = 'Invalid Nepal phone number (must be 9 or 10 digits)';
+    }
+
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Invalid email address';
+    }
+    return e;
+  };
   const handleSave=async()=>{
     const e=validate();
     if(Object.keys(e).length){setErrors(e);return;}
@@ -194,7 +245,27 @@ function VendorManagement() {
     {label:'Actions',render:v=>(
       <div className="vp-action-btns">
         <Button size="sm" variant="ghost" onClick={()=>{setEditing(v);setForm({...v});setErrors({});setModal(true);}}>Edit</Button>
-        <Button size="sm" variant="warning" onClick={()=>setConfirm(v)}>Deactivate</Button>
+        {v.isActive ? (
+          <Button size="sm" variant="warning" onClick={()=>setConfirm(v)}>Deactivate</Button>
+        ) : (
+          <Button size="sm" variant="success" onClick={async ()=>{
+            try {
+              await api.updateVendor(v.id, {
+                vendorName: v.vendorName,
+                contactPerson: v.contactPerson || null,
+                phone: v.phone,
+                email: v.email || null,
+                address: v.address || null,
+                isActive: true
+              });
+              const fresh = await api.getVendors();
+              setVendors(fresh);
+              show('Vendor activated');
+            } catch {
+              show('Failed to activate vendor','error');
+            }
+          }}>Activate</Button>
+        )}
       </div>
     )},
   ];
@@ -230,14 +301,31 @@ function PartsManagement() {
   const [parts,setParts]=useState([]); const [vendors,setVendors]=useState([]); const [loading,setLoading]=useState(true);
   const [search,setSearch]=useState(''); const [filterCat,setFilterCat]=useState('');
   const [modal,setModal]=useState(false); const [editing,setEditing]=useState(null); const [confirm,setConfirm]=useState(null);
+  const [requests,setRequests]=useState([]); const [requestsLoading,setRequestsLoading]=useState(true); const [selectedRequest,setSelectedRequest]=useState(null);
   const {show,Toast}=useToast();
   const empty={partName:'',partCode:'',category:'',description:'',unitPrice:'',stockQty:'',reorderLevel:10,vendorId:'',status:'Active'};
   const [form,setForm]=useState(empty); const [errors,setErrors]=useState({});
   useEffect(()=>{Promise.all([api.getParts(),api.getVendors()]).then(([p,v])=>{setParts(p);setVendors(v);}).finally(()=>setLoading(false));}, []);
+  useEffect(()=>{api.getPartRequests().then(r=>setRequests(r.filter(x=>x.status==='Pending'))).finally(()=>setRequestsLoading(false));}, []);
   const cats=[...new Set(parts.map(p=>p.category))];
   const filtered=parts.filter(p=>{const ms=[p.partName,p.partCode,p.category].some(v=>v?.toLowerCase().includes(search.toLowerCase()));const mc=!filterCat||p.category===filterCat;return ms&&mc;});
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  const validate=()=>{const e={};if(!form.partName)e.partName='Required';if(!form.partCode)e.partCode='Required';if(!form.category)e.category='Required';if(!form.unitPrice||form.unitPrice<0)e.unitPrice='Must be ≥ 0';if(form.stockQty===''||form.stockQty<0)e.stockQty='Must be ≥ 0';return e;};
+  const validate = () => {
+    const e = {};
+    if (!form.partName || !form.partName.trim()) e.partName = 'Required';
+    if (!form.partCode || !form.partCode.trim()) e.partCode = 'Required';
+    if (!form.category) e.category = 'Required';
+    if (form.unitPrice === '' || isNaN(form.unitPrice) || parseFloat(form.unitPrice) < 0) {
+      e.unitPrice = 'Must be a positive number';
+    }
+    if (form.stockQty === '' || isNaN(form.stockQty) || parseInt(form.stockQty) < 0) {
+      e.stockQty = 'Must be a positive integer';
+    }
+    if (form.reorderLevel === '' || isNaN(form.reorderLevel) || parseInt(form.reorderLevel) < 0) {
+      e.reorderLevel = 'Must be a positive integer';
+    }
+    return e;
+  };
   const handleSave=async()=>{
     const e=validate();
     if(Object.keys(e).length){setErrors(e);return;}
@@ -256,9 +344,14 @@ function PartsManagement() {
       if(editing){
         await api.updatePart(editing.id, payload);
         show('Part updated');
-      }else{
+      } else {
         await api.createPart(payload);
         show('Part added');
+        if (selectedRequest) {
+          await api.updatePartRequestStatus(selectedRequest.id, 'Approved');
+          setRequests(prev => prev.filter(r => r.id !== selectedRequest.id));
+          setSelectedRequest(null);
+        }
       }
       const fresh = await api.getParts();
       setParts(fresh);
@@ -295,7 +388,53 @@ function PartsManagement() {
         </div>
         {loading?<Loader/>:<Table columns={cols} data={filtered} emptyMessage="No parts found."/>}
       </Card>
-      <Modal open={modal} onClose={()=>setModal(false)} title={editing?'Edit Part':'Add Part'} size="lg"
+      <Card style={{marginTop:16}}>
+        <div className="vp-section-title">Pending Part Requests</div>
+        {requestsLoading ? <Loader/> : (
+          requests.length === 0 ? <EmptyState message="No pending part requests."/> : <Table
+            columns={[
+              {label:'Customer',render:r=><div><div className="vp-fw6">{r.customerName}</div><div className="vp-text-sm vp-tx3">{r.customer?.user?.email ?? '—'}</div></div>},
+              {label:'Part Name',key:'partName'},
+              {label:'Urgency',key:'urgency'},
+              {label:'Vehicle',key:'vehicleNumber'},
+              {label:'Requested',render:r=>formatDate(r.requestDate)},
+              {label:'Actions',render:r=>(
+                <div className="vp-action-btns">
+                  <Button size="sm" variant="primary" onClick={()=>{
+                    setSelectedRequest(r);
+                    setEditing(null);
+                    setForm({
+                      partName: r.partName,
+                      partCode: r.partName.replace(/\s+/g,'-').toUpperCase().slice(0,20),
+                      category: '',
+                      description: r.description || '',
+                      unitPrice: '',
+                      stockQty: 0,
+                      reorderLevel: 10,
+                      vendorId: '',
+                      status: 'Active',
+                    });
+                    setErrors({});
+                    setModal(true);
+                  }}>Create Part</Button>
+                  <Button size="sm" variant="warning" onClick={async()=>{
+                    try {
+                      await api.updatePartRequestStatus(r.id, 'Rejected');
+                      setRequests(prev=>prev.filter(x=>x.id!==r.id));
+                      show('Request rejected');
+                    } catch {
+                      show('Failed to reject request','error');
+                    }
+                  }}>Reject</Button>
+                </div>
+              )},
+            ]}
+            data={requests}
+            emptyMessage="No pending part requests."
+          />
+        )}
+      </Card>
+      <Modal open={modal} onClose={()=>{setModal(false);setSelectedRequest(null);}} title={editing?'Edit Part':'Add Part'} size="lg"
         footer={<div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button onClick={handleSave}>Save</Button></div>}>
         <FormRow><Input label="Part Name" value={form.partName} onChange={set('partName')} error={errors.partName} required placeholder="e.g. Brake Pad Set"/><Input label="Part Code" value={form.partCode} onChange={set('partCode')} error={errors.partCode} required placeholder="e.g. BP-001"/></FormRow>
         <FormRow><Input label="Category" value={form.category} onChange={set('category')} error={errors.category} required placeholder="e.g. Brakes"/><Select label="Vendor" value={form.vendorId} onChange={set('vendorId')}><option value="">Select vendor</option>{vendors.filter(v=>v.status==='Active').map(v=><option key={v.id} value={v.id}>{v.vendorName}</option>)}</Select></FormRow>
@@ -385,20 +524,65 @@ function PurchaseInvoices() {
 function FinancialReports() {
   const [report,setReport]=useState(null); const [loading,setLoading]=useState(true);
   const [period,setPeriod]=useState('monthly'); const [fromDate,setFromDate]=useState(''); const [toDate,setToDate]=useState('');
-  useEffect(()=>{setLoading(true);api.getFinancialReport(period).then(setReport).finally(()=>setLoading(false));}, [period]);
+  const today = new Date().toISOString().split('T')[0];
+  
+  useEffect(()=>{
+    if(period==='daily'){
+      setFromDate(today);
+      setToDate(today);
+    }else{
+      setFromDate('');
+      setToDate('');
+    }
+  }, [period]);
+  
+  useEffect(()=>{setLoading(true);api.getFinancialReport(period, { fromDate, toDate }).then(setReport).finally(()=>setLoading(false));}, [period]);
+  
+  const downloadPDF = async () => {
+    try {
+      const element = document.getElementById('financial-report-content');
+      if (!element) return;
+      
+      const canvas = await html2canvas(element, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= 297;
+      
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= 297;
+      }
+      
+      const fileName = `Financial_Report_${period}_${fromDate}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    }
+  };
+  
   return (
     <AdminLayout title="Financial Reports">
       <PageHeader title="Financial Reports" subtitle="Business performance summary"/>
       <Card>
         <div className="vp-toolbar">
           <Select label="" value={period} onChange={e=>setPeriod(e.target.value)}><option value="daily">Daily</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></Select>
-          <Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}/>
-          <Input label="" type="date" value={toDate} onChange={e=>setToDate(e.target.value)}/>
-          <Button onClick={()=>{setLoading(true);api.getFinancialReport(period).then(setReport).finally(()=>setLoading(false));}}>Generate</Button>
+          {period==='daily'&&<Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today}/>}
+          {period==='monthly'&&<Input label="" type="month" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today.slice(0,7)}/>}
+          {period==='yearly'&&<Input label="" type="text" placeholder="YYYY" value={fromDate} onChange={e=>/^\d{0,4}$/.test(e.target.value)&&setFromDate(e.target.value)} maxLength="4"/>}
+          <Button onClick={()=>{setLoading(true);api.getFinancialReport(period, { fromDate, toDate:period==='daily'?today:fromDate }).then(setReport).finally(()=>setLoading(false));}}>Generate</Button>
+          {report && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
         </div>
       </Card>
       {loading?<Loader/>:report&&(
-        <>
+        <div id="financial-report-content">
           <div className="vp-dash-grid">
             <DashboardCard title="Total Sales"     value={formatCurrency(report.totalSales)}     accent="var(--success)"/>
             <DashboardCard title="Total Purchases" value={formatCurrency(report.totalPurchases)} accent="#6366f1"/>
@@ -418,7 +602,7 @@ function FinancialReports() {
                 {label:'Number of Invoices',value:report.invoiceCount},
               ]}/>
           </Card>
-        </>
+        </div>
       )}
     </AdminLayout>
   );
@@ -489,4 +673,21 @@ function AdminNotifications() {
   );
 }
 
-export { AdminDashboard, StaffManagement, VendorManagement, PartsManagement, PurchaseInvoices, FinancialReports, LowStockAlerts, AdminNotifications  };
+export { AdminDashboard, StaffManagement, VendorManagement, PartsManagement, PurchaseInvoices, FinancialReports, LowStockAlerts, AdminNotifications, EmailLogsPage };
+
+function EmailLogsPage(){
+  const [logs,setLogs]=useState([]); const [loading,setLoading]=useState(true); const {show,Toast}=useToast();
+  const fetch=()=>{setLoading(true);api.getEmailLogs().then(setLogs).finally(()=>setLoading(false));};
+  const fetchDev=()=>{setLoading(true);api.getDevEmailLogs().then(d=>setLogs(Array.isArray(d)?d:(d.data??[]))).finally(()=>setLoading(false));};
+  useEffect(()=>{fetch();}, []);
+  const seed=async()=>{try{await api.seedEmailLogs();show('Seeded sample logs');fetch();}catch{show('Failed to seed','error');}}
+  const seedDev=async()=>{try{await api.seedDevEmailLogs();show('Seeded dev logs');fetchDev();}catch{show('Failed to seed dev logs','error');}}
+  const cols=[{label:'To',key:'toEmail'},{label:'Subject',key:'subject'},{label:'Status',key:'status'},{label:'Sent At',render:l=>formatDateTime(l.sentAt)},{label:'Invoice Id',key:'invoiceId'}];
+  return (
+    <AdminLayout title="Email Logs">
+      {Toast}
+      <PageHeader title="Email Logs" subtitle="Recent email activity" action={<div style={{display:'flex',gap:8}}><Button onClick={seed}>Seed Sample</Button><Button variant="ghost" onClick={seedDev}>Seed Dev</Button><Button variant="outline" onClick={fetchDev}>Load Dev Logs</Button></div>} />
+      <Card style={{marginTop:16}}>{loading?<Loader/>:<Table columns={cols} data={logs} emptyMessage="No logs available."/>}</Card>
+    </AdminLayout>
+  );
+}

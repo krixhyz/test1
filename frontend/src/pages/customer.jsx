@@ -109,7 +109,26 @@ function CustomerProfile() {
   const [editing,setEditing]=useState(false); const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';return e;};
+  const validate = () => {
+    const e = {};
+    if (!form.fullName) {
+      e.fullName = 'Required';
+    } else if (form.fullName.trim().length < 3) {
+      e.fullName = 'Name must be at least 3 characters';
+    }
+
+    const cleanPhone = form.phone.replace(/[^\d+]/g, '').replace(/^\+?977/, '').replace(/^0/, '');
+    if (!form.phone) {
+      e.phone = 'Required';
+    } else if (!/^\d{10}$/.test(cleanPhone)) {
+      e.phone = 'Invalid Nepal phone number (must be 10 digits)';
+    }
+
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Invalid email address';
+    }
+    return e;
+  };
 
   useEffect(() => {
     if (!customerId) return;
@@ -146,8 +165,9 @@ function CustomerProfile() {
       if (user && token) auth.setAuth({ ...user, fullName: form.fullName }, token);
       show('Profile updated');
       setEditing(false);
-    } catch {
-      show('Failed to update profile','error');
+    } catch (err) {
+      const message = err?.response?.data?.message || err?.response?.data?.errors?.[0]?.description || err?.message || 'Failed to update profile';
+      show(message, 'error');
     }
   };
   return (
@@ -196,7 +216,20 @@ function MyVehicles() {
   useEffect(() => {
     if (!loadingCustomer && !customerId) setLoading(false);
   }, [loadingCustomer, customerId]);
-  const validate=()=>{const e={};if(!form.vehicleNumber)e.vehicleNumber='Required';if(!form.brand)e.brand='Required';return e;};
+  const validate = () => {
+    const e = {};
+    if (!form.vehicleNumber) {
+      e.vehicleNumber = 'Required';
+    } else if (form.vehicleNumber.trim().length < 4) {
+      e.vehicleNumber = 'Vehicle number must be at least 4 characters';
+    }
+    if (!form.brand) {
+      e.brand = 'Required';
+    } else if (form.brand.trim().length < 2) {
+      e.brand = 'Brand name must be at least 2 characters';
+    }
+    return e;
+  };
   const handleSave=async()=>{
     const e=validate();
     if(Object.keys(e).length){setErrors(e);return;}
@@ -277,7 +310,10 @@ function BookAppointment() {
   const [form,setForm]=useState({vehicleId:'',serviceType:'',date:'',time:'',description:''});
   const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
-  const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
+  const set=k=>e=>{
+    setForm(f=>({...f,[k]:e.target.value}));
+    setErrors(errs=>({...errs,[k]:''}));
+  };
   useEffect(()=>{
     if (!customerId) return;
     Promise.all([api.getAppointments(),api.getVehicles(customerId)])
@@ -287,7 +323,32 @@ function BookAppointment() {
   useEffect(() => {
     if (!loadingCustomer && !customerId) setLoading(false);
   }, [loadingCustomer, customerId]);
-  const validate=()=>{const e={};if(!form.vehicleId)e.vehicleId='Select a vehicle';if(!form.serviceType)e.serviceType='Select service type';if(!form.date)e.date='Date is required';else if(new Date(form.date)<new Date())e.date='Date cannot be in the past';if(!form.time)e.time='Time is required';return e;};
+  const validate=()=>{
+    const e={};
+    if(!form.vehicleId) e.vehicleId='Select a vehicle';
+    if(!form.serviceType) e.serviceType='Select service type';
+    if(!form.date) {
+      e.date='Date is required';
+    } else {
+      const selected = new Date(form.date);
+      selected.setHours(0,0,0,0);
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      if (selected < today) {
+        e.date='Date cannot be in the past';
+      } else if (selected.getTime() === today.getTime() && form.time) {
+        // If preferred date is today, check if selected time has already passed today
+        const [hours, minutes] = form.time.split(':').map(Number);
+        const selectedDateTime = new Date();
+        selectedDateTime.setHours(hours, minutes, 0, 0);
+        if (selectedDateTime < new Date()) {
+          e.time='Time cannot be in the past';
+        }
+      }
+    }
+    if(!form.time) e.time='Time is required';
+    return e;
+  };
   const handleBook=async e=>{
     e.preventDefault();
     const errs=validate();
@@ -326,7 +387,7 @@ function BookAppointment() {
               <Select label="Service Type" required value={form.serviceType} onChange={set('serviceType')} error={errors.serviceType}><option value="">Select service</option>{['General Service','Oil Change','Brake Inspection','Tire Change','Battery Check','AC Service','Engine Diagnostic','Other'].map(s=><option key={s}>{s}</option>)}</Select>
             </FormRow>
             <FormRow>
-              <Input label="Preferred Date" type="date" required value={form.date} onChange={set('date')} error={errors.date}/>
+              <Input label="Preferred Date" type="date" required value={form.date} onChange={set('date')} error={errors.date} min={new Date().toLocaleDateString('en-CA')}/>
               <Input label="Preferred Time" type="time" required value={form.time} onChange={set('time')} error={errors.time}/>
             </FormRow>
             <Textarea label="Description" value={form.description} onChange={set('description')} placeholder="Describe the issue or service needed..."/>
@@ -445,7 +506,7 @@ function MyHistory() {
           {tab==='purchases'&&<Table columns={[{label:'Invoice #',key:'invoiceNumber'},{label:'Date',render:i=>formatDate(i.date)},{label:'Subtotal',render:i=>formatCurrency(i.subtotal)},{label:'Discount',render:i=>i.discount>0?<span className="vp-success-color">- {formatCurrency(i.discount)}</span>:'—'},{label:'Total',render:i=><span className="vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Status',render:i=><StatusBadge status={i.paymentStatus}/>}]} data={history.purchases} emptyMessage="No purchase history."/>}
           {tab==='services'&&<EmptyState message="No service history records yet."/>}
           {tab==='appointments'&&<Table columns={[{label:'Service',key:'serviceType'},{label:'Vehicle',key:'vehicleNumber'},{label:'Date',render:a=>formatDate(a.appointmentDate || a.date)},{label:'Status',render:a=><StatusBadge status={a.status}/>}]} data={history.appointments} emptyMessage="No appointments."/>}
-          {tab==='credits'&&<Table columns={[{label:'Invoice #',key:'invoiceNumber'},{label:'Date',render:i=>formatDate(i.date)},{label:'Amount',render:i=><span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Due Date',render:i=>i.creditDueDate?formatDate(i.creditDueDate):'—'},{label:'Status',render:i=><StatusBadge status={i.paymentStatus}/>}]} data={history.purchases.filter(i=>i.paymentStatus==='Credit')} emptyMessage="No credit invoices."/>}
+          {tab==='credits'&&<Table columns={[{label:'Invoice #',key:'invoiceNumber'},{label:'Date',render:i=>formatDate(i.date)},{label:'Amount',render:i=><span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span>},{label:'Due Date',render:i=>i.creditDueDate?formatDate(i.creditDueDate):'—'},{label:'Status',render:i=><StatusBadge status={i.paymentStatus}/>},{label:'Pay',render:i=>(<div style={{display:'flex',gap:8}}><Button size="sm" onClick={async ()=>{ try{const res=await api.initiateEsewa(i.id); if(res?.formUrl) { const f=document.createElement('form'); f.method='POST'; f.action=res.formUrl; Object.entries(res.formData).forEach(([k,v])=>{const inp=document.createElement('input');inp.type='hidden';inp.name=k;inp.value=v;f.appendChild(inp);}); document.body.appendChild(f); f.submit(); } }catch(e){alert('eSewa error');} }}>eSewa</Button><Button size="sm" variant="secondary" onClick={async ()=>{ try{const res=await api.initiateKhalti(i.id); if(res?.paymentUrl) window.location.href=res.paymentUrl; }catch(e){alert('Khalti error');} }}>Khalti</Button></div>)}]} data={history.purchases.filter(i=>i.paymentStatus==='Credit')} emptyMessage="No credit invoices."/>}
         </Card>
       )}
     </CustomerLayout>

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using WeatherAPI.Domain.Entities;
 using WeatherAPI.Infrastructure.Data;
 using WeatherAPI.Application.Common;
+using System.ComponentModel.DataAnnotations;
 
 namespace WeatherAPI.Controllers;
 
@@ -41,16 +42,34 @@ public class AppointmentsController : ControllerBase {
     public async Task<IActionResult> UpdateStatus(Guid id, [FromBody] string status) {
         var a = await _db.Appointments.FindAsync(id);
         if (a == null) return NotFound();
+        
+        // Validate status transition
+        var validStatuses = new[] { "Pending", "Confirmed", "In Progress", "Completed", "Cancelled" };
+        if (!validStatuses.Contains(status))
+            return BadRequest(ApiResponse<object>.Fail($"Invalid status. Allowed: {string.Join(", ", validStatuses)}"));
+        
         a.Status = status;
+        a.StatusUpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
-        return Ok(ApiResponse<object>.Ok(new { a.Id, a.Status }, "Status updated."));
+        return Ok(ApiResponse<object>.Ok(new { a.Id, a.Status, a.StatusUpdatedAt }, "Status updated."));
     }
 }
 
+
 public class AppointmentCreateDto {
+    [Required]
     public Guid CustomerId { get; set; }
+
+    [Required]
     public Guid VehicleId { get; set; }
+
+    [Required]
     public DateTime AppointmentDate { get; set; }
+
+    [Required]
+    [MaxLength(100)]
     public string ServiceType { get; set; } = string.Empty;
+
+    [MaxLength(500)]
     public string Description { get; set; } = string.Empty;
 }

@@ -26,7 +26,23 @@ public class ReviewsController : ControllerBase {
     public async Task<IActionResult> Create([FromBody] ReviewCreateDto dto) {
         if (dto.Rating < 1 || dto.Rating > 5)
             return BadRequest(ApiResponse<object>.Fail("Rating must be between 1 and 5."));
-        var review = new Review { CustomerId = dto.CustomerId, AppointmentId = dto.AppointmentId, Rating = dto.Rating, Comment = dto.Comment };
+        
+        // If AppointmentId is provided, verify the appointment is completed
+        if (dto.AppointmentId.HasValue) {
+            var appointment = await _db.Appointments.FindAsync(dto.AppointmentId.Value);
+            if (appointment == null)
+                return NotFound(ApiResponse<object>.Fail("Appointment not found."));
+            if (appointment.Status != "Completed")
+                return BadRequest(ApiResponse<object>.Fail("Review can only be submitted for completed appointments."));
+        }
+        
+        var review = new Review { 
+            CustomerId = dto.CustomerId, 
+            AppointmentId = dto.AppointmentId, 
+            Rating = dto.Rating, 
+            Comment = dto.Comment,
+            Date = DateTime.UtcNow
+        };
         _db.Reviews.Add(review);
         await _db.SaveChangesAsync();
         return CreatedAtAction(nameof(GetAll), ApiResponse<Review>.Ok(review, "Review submitted."));

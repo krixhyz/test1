@@ -9,4 +9,6 @@ public class Appointment {
     public string ServiceType { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
+    public DateTime StatusUpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

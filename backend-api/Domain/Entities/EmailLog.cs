@@ -5,4 +5,6 @@ public class EmailLog {
     public string Subject { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public Guid? InvoiceId { get; set; }
+    public Guid? CustomerId { get; set; }
 }

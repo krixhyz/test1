@@ -1,7 +1,8 @@
-import { StaffLayout } from '../components/layout.jsx';
-import { NavIcon } from '../components/layout.jsx';
+import { StaffLayout, AdminLayout, NavIcon } from '../components/layout.jsx';
 import { Icon, Button, Input, Select, Badge, StatusBadge, Card, DashboardCard, Loader, EmptyState, PageHeader, SearchBar, Alert, Modal, Table, FormRow, useToast } from '../components/common.jsx';
 import { auth, api, navigate, getPath, formatCurrency, formatDate, formatDateTime, DEMO } from '../utils.js';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 // ── Staff Pages ───────────────────────────────────────────────
 import React, { useState, useEffect } from 'react';
 
@@ -55,7 +56,42 @@ function CustomerRegistration() {
   const [errors,setErrors]=useState({}); const [loading,setLoading]=useState(false);
   const {show,Toast}=useToast();
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
-  const validate=()=>{const e={};if(!form.fullName)e.fullName='Required';if(!form.phone)e.phone='Required';if(form.email&&!/\S+@\S+\.\S+/.test(form.email))e.email='Invalid email';if(!form.password||form.password.length<6)e.password='Min. 6 characters';if(form.password!==form.confirmPassword)e.confirmPassword='Passwords do not match';if(!form.vehicleNumber)e.vehicleNumber='Required';return e;};
+  const validate = () => {
+    const e = {};
+    if (!form.fullName) {
+      e.fullName = 'Required';
+    } else if (form.fullName.trim().length < 3) {
+      e.fullName = 'Name must be at least 3 characters';
+    }
+
+    const cleanPhone = form.phone.replace(/[^\d+]/g, '').replace(/^\+?977/, '').replace(/^0/, '');
+    if (!form.phone) {
+      e.phone = 'Required';
+    } else if (!/^\d{10}$/.test(cleanPhone)) {
+      e.phone = 'Invalid Nepal phone number (must be 10 digits)';
+    }
+
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      e.email = 'Invalid email address';
+    }
+
+    if (!form.password) {
+      e.password = 'Required';
+    } else if (form.password.length < 6) {
+      e.password = 'Min. 6 characters';
+    }
+
+    if (form.password !== form.confirmPassword) {
+      e.confirmPassword = 'Passwords do not match';
+    }
+
+    if (!form.vehicleNumber) {
+      e.vehicleNumber = 'Required';
+    } else if (form.vehicleNumber.trim().length < 4) {
+      e.vehicleNumber = 'Invalid vehicle number';
+    }
+    return e;
+  };
   const handleSubmit=async e=>{
     e.preventDefault();
     const errs=validate();
@@ -230,7 +266,30 @@ function PartsSale() {
   const [successInvoice,setSuccessInvoice]=useState(null);
   const {show,Toast}=useToast();
   useEffect(()=>{Promise.all([api.getCustomers(),api.getParts()]).then(([c,p])=>{setCustomers(c);setParts(p);}).finally(()=>setLoading(false));}, []);
-  const setItem=(i,k,v)=>setItems(rows=>rows.map((r,idx)=>{if(idx!==i)return r;const u={...r,[k]:v};if(k==='partId'){const p=parts.find(p=>p.id==v);u.unitPrice=p?p.unitPrice:0;u.availableStock=p?p.stockQty:0;u.partName=p?p.partName:'';u.lineTotal=u.unitPrice*u.quantity;}if(k==='quantity')u.lineTotal=u.unitPrice*parseFloat(v||0);return u;}));
+  const setItem=(i,k,v)=>setItems(rows=>rows.map((r,idx)=>{
+    if(idx!==i)return r;
+    const u={...r,[k]:v};
+    if(k==='partId'){
+      const p=parts.find(p=>p.id==v);
+      u.unitPrice=p?p.unitPrice:0;
+      u.availableStock=p?p.stockQty:0;
+      u.partName=p?p.partName:'';
+      const currentQty = parseInt(u.quantity) || 1;
+      u.quantity = Math.max(1, Math.min(currentQty, p ? p.stockQty : 1));
+      u.lineTotal = u.unitPrice * u.quantity;
+    }
+    if(k==='quantity'){
+      if (v === '') {
+        u.quantity = '';
+        u.lineTotal = 0;
+      } else {
+        const qty = parseInt(v) || 1;
+        u.quantity = Math.max(1, Math.min(qty, u.availableStock || 1));
+        u.lineTotal = u.unitPrice * u.quantity;
+      }
+    }
+    return u;
+  }));
   const subtotal=items.reduce((s,i)=>s+(i.lineTotal||0),0);
   const discount=subtotal>5000?subtotal*0.1:0;
   const finalTotal=subtotal-discount;
@@ -239,7 +298,19 @@ function PartsSale() {
     if(!items.some(i=>i.partId)){show('Add at least one part','error');return;}
     const over=items.find(i=>i.partId&&parseInt(i.quantity)>i.availableStock);
     if(over){show(`Insufficient stock for: ${over.partName}`,'error');return;}
-    if((paymentStatus==='Credit'||paymentStatus==='Partial')&&!creditDueDate){show('Credit due date is required','error');return;}
+    if (paymentStatus === 'Credit' || paymentStatus === 'Partial') {
+      if (!creditDueDate) {
+        show('Credit due date is required', 'error');
+        return;
+      }
+      const selectedDate = new Date(`${creditDueDate}T00:00:00`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (selectedDate < today) {
+        show('Credit due date cannot be in the past', 'error');
+        return;
+      }
+    }
     try {
       const created = await api.createSalesInvoice({
         customerId,
@@ -293,7 +364,7 @@ function PartsSale() {
         <FormRow>
           <Select label="Customer" required value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">Select customer</option>{customers.map(c=><option key={c.id} value={c.id}>{c.fullName} — {c.phone}</option>)}</Select>
           <Select label="Payment Status" value={paymentStatus} onChange={e=>setPaymentStatus(e.target.value)}><option>Paid</option><option>Credit</option><option>Partial</option></Select>
-          {(paymentStatus==='Credit'||paymentStatus==='Partial')&&<Input label="Credit Due Date" type="date" value={creditDueDate} onChange={e=>setCreditDueDate(e.target.value)} required/>}
+          {(paymentStatus==='Credit'||paymentStatus==='Partial')&&<Input label="Credit Due Date" type="date" value={creditDueDate} onChange={e=>setCreditDueDate(e.target.value)} min={new Date().toLocaleDateString('en-CA')} required/>}
         </FormRow>
         <div className="vp-invoice-items" style={{marginTop:16}}>
           <div className="vp-invoice-header"><span style={{flex:3}}>Part</span><span style={{flex:1}}>In Stock</span><span style={{flex:1}}>Qty</span><span style={{flex:1}}>Unit Price</span><span style={{flex:1}}>Total</span><span style={{width:36}}></span></div>
@@ -301,7 +372,7 @@ function PartsSale() {
             <div key={i} className="vp-invoice-row">
               <div style={{flex:3}}><select className="vp-input" value={item.partId} onChange={e=>setItem(i,'partId',e.target.value)}><option value="">Select part</option>{parts.filter(p=>p.stockQty>0).map(p=><option key={p.id} value={p.id}>{p.partName} ({p.partCode})</option>)}</select></div>
               <div style={{flex:1,color:item.partId&&item.availableStock<=item.quantity?'var(--error)':'var(--success)',fontWeight:600}}>{item.partId?item.availableStock:'—'}</div>
-              <div style={{flex:1}}><input type="number" className="vp-input" value={item.quantity} min="1" max={item.availableStock||999} onChange={e=>setItem(i,'quantity',parseInt(e.target.value)||1)}/></div>
+              <div style={{flex:1}}><input type="number" className="vp-input" value={item.quantity} min="1" max={item.availableStock||999} onChange={e=>setItem(i,'quantity',e.target.value)}/></div>
               <div style={{flex:1,color:'var(--tx2)'}}>{formatCurrency(item.unitPrice)}</div>
               <div style={{flex:1,fontWeight:700,color:'var(--tx)'}}>{formatCurrency(item.lineTotal)}</div>
               <button className="vp-remove-row" onClick={()=>setItems(r=>r.filter((_,idx)=>idx!==i))}>×</button>
@@ -326,7 +397,15 @@ function SalesInvoices() {
   const {show,Toast}=useToast();
   useEffect(()=>{api.getSalesInvoices().then(setInvoices).finally(()=>setLoading(false));}, []);
   const filtered=invoices.filter(i=>[i.invoiceNumber,i.customerName].some(v=>v?.toLowerCase().includes(search.toLowerCase())));
-  const sendEmail=inv=>{show(`Invoice ${inv.invoiceNumber} sent to customer`);setInvoices(prev=>prev.map(i=>i.id===inv.id?{...i,emailSent:true}:i));};
+  const sendEmail=async(inv)=>{
+    try {
+      await api.sendInvoiceEmail(inv.id);
+      show(`Invoice ${inv.invoiceNumber} sent to customer`);
+      setInvoices(prev=>prev.map(i=>i.id===inv.id?{...i,emailSent:true}:i));
+    } catch (err) {
+      show('Failed to send email','error');
+    }
+  };
   const cols=[
     {label:'Invoice #',key:'invoiceNumber'},{label:'Customer',key:'customerName'},
     {label:'Date',render:i=>formatDate(i.date)},
@@ -371,7 +450,78 @@ function SalesInvoices() {
 function CustomerReports() {
   const [reportType,setReportType]=useState('high-spenders'); const [fromDate,setFromDate]=useState(''); const [toDate,setToDate]=useState('');
   const [data,setData]=useState([]); const [loading,setLoading]=useState(false); const [generated,setGenerated]=useState(false);
-  const generate=async()=>{setLoading(true);setGenerated(false);const [customers,invoices]=await Promise.all([api.getCustomers(),api.getSalesInvoices()]);let result=[];if(reportType==='high-spenders'){result=customers.map(c=>({...c,totalSpent:invoices.filter(i=>i.customerId===c.id).reduce((s,i)=>s+i.totalAmount,0),invoiceCount:invoices.filter(i=>i.customerId===c.id).length})).filter(c=>c.totalSpent>0).sort((a,b)=>b.totalSpent-a.totalSpent);}else if(reportType==='regulars'){result=customers.map(c=>({...c,invoiceCount:invoices.filter(i=>i.customerId===c.id).length,totalSpent:invoices.filter(i=>i.customerId===c.id).reduce((s,i)=>s+i.totalAmount,0)})).filter(c=>c.invoiceCount>=1).sort((a,b)=>b.invoiceCount-a.invoiceCount);}else if(reportType==='pending-credits'){result=customers.filter(c=>c.creditBalance>0).map(c=>({...c,pendingAmount:c.creditBalance,invoiceCount:invoices.filter(i=>i.customerId===c.id&&i.paymentStatus==='Credit').length}));}setData(result);setLoading(false);setGenerated(true);};
+  const today = new Date().toISOString().split('T')[0];
+  
+  const generate=async()=>{
+    setLoading(true);
+    setGenerated(false);
+    try {
+      let result = [];
+      if (reportType === 'high-spenders') {
+        const res = await api.getHighSpenders();
+        result = (res || []).map(r => ({
+          fullName: r.fullName ?? r.FullName ?? '',
+          phone: r.phone ?? r.Phone ?? '',
+          totalSpent: r.totalSpent ?? r.TotalSpent ?? 0,
+          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
+        }));
+      } else if (reportType === 'regulars') {
+        const res = await api.getRegularCustomers();
+        result = (res || []).map(r => ({
+          fullName: r.fullName ?? r.FullName ?? '',
+          phone: r.phone ?? r.Phone ?? '',
+          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
+          totalSpent: r.totalSpent ?? r.TotalSpent ?? 0,
+        }));
+      } else if (reportType === 'pending-credits') {
+        const res = await api.getCreditOverdue();
+        result = (res || []).map(r => ({
+          fullName: r.customerName ?? r.CustomerName ?? r.fullName ?? r.FullName ?? '',
+          phone: r.customerPhone ?? r.customerPhone ?? '',
+          pendingAmount: r.totalAmount ?? r.TotalAmount ?? 0,
+          invoiceCount: r.invoiceCount ?? r.InvoiceCount ?? 0,
+          creditInvoiceId: r.id ?? r.Id,
+        }));
+      }
+      setData(result);
+    } catch (err) {
+      setData([]);
+    } finally {
+      setLoading(false);
+      setGenerated(true);
+    }
+  };
+  
+  const downloadPDF = async () => {
+    try {
+      const element = document.getElementById('customer-report-content');
+      if (!element) return;
+      
+      const canvas = await html2canvas(element, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= 297;
+      
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= 297;
+      }
+      
+      const fileName = `Customer_Report_${reportType}_${fromDate}.pdf`;
+      pdf.save(fileName);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    }
+  };
+  
   const colsMap={'high-spenders':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Total Spent',render:c=><span className="vp-fw6 vp-accent-color">{formatCurrency(c.totalSpent)}</span>},{label:'Invoices',key:'invoiceCount'}],'regulars':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Visit Count',render:c=><span className="vp-fw6">{c.invoiceCount}</span>},{label:'Total Spent',render:c=>formatCurrency(c.totalSpent)}],'pending-credits':[{label:'Customer',key:'fullName'},{label:'Phone',key:'phone'},{label:'Pending Amount',render:c=><span className="vp-error-color vp-fw6">{formatCurrency(c.pendingAmount)}</span>},{label:'Credit Invoices',key:'invoiceCount'}]};
   return (
     <StaffLayout title="Customer Reports">
@@ -379,12 +529,14 @@ function CustomerReports() {
       <Card>
         <div className="vp-toolbar">
           <Select label="" value={reportType} onChange={e=>setReportType(e.target.value)}><option value="high-spenders">High Spenders</option><option value="regulars">Regular Customers</option><option value="pending-credits">Pending Credits</option></Select>
-          <Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}/><Input label="" type="date" value={toDate} onChange={e=>setToDate(e.target.value)}/>
+          <Input label="" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} max={today}/>
+          <Input label="" type="date" value={toDate} onChange={e=>setToDate(e.target.value)} max={today}/>
           <Button onClick={generate}>Generate</Button>
+          {generated && <Button onClick={downloadPDF} variant="success">Download PDF</Button>}
         </div>
       </Card>
       {loading&&<Loader text="Generating report..."/>}
-      {generated&&!loading&&<Card style={{marginTop:16}}><div className="vp-section-title">{{  'high-spenders':'High Spenders','regulars':'Regular Customers','pending-credits':'Pending Credits'}[reportType]} — {data.length} records</div><Table columns={colsMap[reportType]} data={data} emptyMessage="No data for selected criteria."/></Card>}
+      {generated&&!loading&&<div id="customer-report-content"><Card style={{marginTop:16}}><div className="vp-section-title">{{  'high-spenders':'High Spenders','regulars':'Regular Customers','pending-credits':'Pending Credits'}[reportType]} — {data.length} records</div><Table columns={colsMap[reportType]} data={data} emptyMessage="No data for selected criteria."/></Card></div>}
     </StaffLayout>
   );
 }
@@ -393,21 +545,169 @@ function CreditReminders() {
   const [overdue,setOverdue]=useState([]); const [loading,setLoading]=useState(true); const [sent,setSent]=useState(new Set());
   const {show,Toast}=useToast();
   useEffect(()=>{Promise.all([api.getCreditOverdue(),api.getCustomers()]).then(([inv,customers])=>{const enriched=inv.map(i=>{const c=customers.find(c=>c.id===i.customerId);const d=Math.floor((new Date()-new Date(i.creditDueDate))/(1000*60*60*24));return{...i,customerEmail:c?.email,customerPhone:c?.phone,daysOverdue:d};});setOverdue(enriched);}).finally(()=>setLoading(false));}, []);
+  const handleSendAll = async () => {
+    try {
+      const res = await api.sendCreditReminders();
+      const count = res?.remindersSent ?? (res?.data?.remindersSent ?? 0) ?? 0;
+      show(`${count} reminder(s) sent successfully`);
+      setLoading(true);
+      const inv = await api.getCreditOverdue();
+      const customers = await api.getCustomers();
+      const enriched = inv.map(i=>{const c=customers.find(c=>c.id===i.customerId);const d=Math.floor((new Date()-new Date(i.creditDueDate))/(1000*60*60*24));return{...i,customerEmail:c?.email,customerPhone:c?.phone,daysOverdue:d};});
+      setOverdue(enriched);
+    } catch (err) {
+      show('Failed to send reminders','error');
+    } finally { setLoading(false); }
+  };
+  const handleSendOne = async (inv) => {
+    try {
+      await api.sendCreditReminder(inv.id);
+      show(`Reminder sent to ${inv.customerName}`);
+      setSent(prev => new Set([...prev, inv.id]));
+    } catch (err) {
+      show('Failed to send reminder','error');
+    }
+  };
   const cols=[
     {label:'Customer',key:'customerName'},{label:'Email',render:i=>i.customerEmail||'—'},
     {label:'Invoice #',key:'invoiceNumber'},{label:'Due Date',render:i=>formatDate(i.creditDueDate)},
     {label:'Amount Due',render:i=><span className="vp-error-color vp-fw6">{formatCurrency(i.totalAmount)}</span>},
     {label:'Days Overdue',render:i=><span className="vp-error-color">{i.daysOverdue} days</span>},
-    {label:'Action',render:i=>sent.has(i.id)?<Badge color="green">Sent</Badge>:<Button size="sm" onClick={()=>{setSent(prev=>new Set([...prev,i.id]));show(`Reminder sent to ${i.customerName}`);}}><Icon name="mail" size={13}/> Send</Button>},
+    {label:'Action',render:i=>sent.has(i.id)?<Badge color="green">Sent</Badge>:<Button size="sm" variant="secondary" onClick={()=>handleSendOne(i)}><Icon name="mail" size={13}/> Send</Button>},
   ];
   return (
     <StaffLayout title="Credit Reminders">
       {Toast}
-      <PageHeader title="Credit Reminders" subtitle="Customers with overdue payments"/>
+      <PageHeader title="Credit Reminders" subtitle="Customers with overdue payments" action={<Button variant="secondary" onClick={handleSendAll}>Send Reminders</Button>} />
       {overdue.length>0&&<Alert type="warning" message={`${overdue.length} customer(s) have overdue credit payments.`}/>}
       <Card style={{marginTop:16}}>{loading?<Loader/>:<Table columns={cols} data={overdue} emptyMessage="No overdue credit payments."/>}</Card>
     </StaffLayout>
   );
 }
 
-export { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, CustomerDetails, PartsSale, SalesInvoices, CustomerReports, CreditReminders  };
+function StaffAppointments({ isAdmin = false }) {
+  const [appointments, setAppointments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const { show, Toast } = useToast();
+
+  const fetchAppointments = async () => {
+    try {
+      const data = await api.getAppointments();
+      setAppointments(data);
+    } catch {
+      show('Failed to fetch appointments', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAppointments();
+  }, []);
+
+  const handleStatusChange = async (id, newStatus) => {
+    try {
+      await api.updateAppointmentStatus(id, newStatus);
+      show(`Appointment status updated to ${newStatus}`);
+      fetchAppointments();
+    } catch (err) {
+      show(err.message || 'Failed to update status', 'error');
+    }
+  };
+
+  const filtered = appointments.filter(a => {
+    const matchesStatus = statusFilter === 'All' || a.status === statusFilter;
+    const matchesSearch = 
+      (a.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (a.vehicleNumber || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (a.serviceType || '').toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
+
+  const LayoutComponent = isAdmin ? AdminLayout : StaffLayout;
+
+  if (loading) return <LayoutComponent title="Appointments"><Loader /></LayoutComponent>;
+
+  return (
+    <LayoutComponent title="Appointments">
+      {Toast}
+      <PageHeader title="Appointments" subtitle="Manage customer service bookings" />
+      <Card style={{ marginBottom: 16 }}>
+        <FormRow>
+          <div style={{ flex: 2 }}>
+            <SearchBar value={searchQuery} onChange={setSearchQuery} placeholder="Search by customer name, vehicle, or service..." />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Select label="Filter by Status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+              <option value="All">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </Select>
+          </div>
+        </FormRow>
+      </Card>
+
+      <Card style={{ marginTop: 16 }}>
+        <Table
+          columns={[
+            { label: 'Customer', key: 'customerName' },
+            { label: 'Vehicle Number', key: 'vehicleNumber' },
+            { label: 'Service Type', key: 'serviceType' },
+            { label: 'Description', key: 'description' },
+            { label: 'Preferred Date & Time', render: a => formatDateTime(a.date) },
+            { label: 'Status', render: a => <StatusBadge status={a.status} /> },
+            {
+              label: 'Actions',
+              render: a => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {a.status === 'Pending' && (
+                    <>
+                      <Button size="sm" variant="success" onClick={() => handleStatusChange(a.id, 'Confirmed')}>
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => handleStatusChange(a.id, 'Cancelled')}>
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                  {a.status === 'Confirmed' && (
+                    <Button size="sm" variant="primary" onClick={() => handleStatusChange(a.id, 'In Progress')}>
+                      Start Service
+                    </Button>
+                  )}
+                  {a.status === 'In Progress' && (
+                    <Button size="sm" variant="success" onClick={() => handleStatusChange(a.id, 'Completed')}>
+                      Complete Service
+                    </Button>
+                  )}
+                  {a.status !== 'Completed' && a.status !== 'Cancelled' && (
+                    <Select
+                      value={a.status}
+                      onChange={e => handleStatusChange(a.id, e.target.value)}
+                      style={{ height: 28, padding: '0 8px', fontSize: 12, width: 'auto' }}
+                    >
+                      <option value="Pending" disabled>Pending</option>
+                      <option value="Confirmed">Confirmed</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Completed">Completed</option>
+                      <option value="Cancelled">Cancelled</option>
+                    </Select>
+                  )}
+                </div>
+              ),
+            },
+          ]}
+          data={filtered}
+          emptyMessage="No matching appointments found."
+        />
+      </Card>
+    </LayoutComponent>
+  );
+}
+
+export { StaffDashboard, CustomerRegistration, CustomersPage, CustomerSearch, CustomerDetails, PartsSale, SalesInvoices, CustomerReports, CreditReminders, StaffAppointments };

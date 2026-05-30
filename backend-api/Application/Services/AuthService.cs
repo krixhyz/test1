@@ -74,7 +74,13 @@ public class AuthService : IAuthService {
             .AnyAsync(v => v.VehicleNumber == dto.VehicleNumber);
         if (vehicleExists) return ApiResponse<object>.Fail("Vehicle number already registered.");
 
-        var user = new ApplicationUser { UserName = dto.Email, Email = dto.Email, FullName = dto.FullName, PhoneNumber = dto.Phone };
+        if (!PhoneHelper.IsNepalPhoneNumber(dto.Phone)) return ApiResponse<object>.Fail("Phone number must be a Nepal phone number.");
+
+        var normalizedPhone = PhoneHelper.NormalizePhoneNumber(dto.Phone);
+        var phoneExists = await _userManager.Users.AsNoTracking().AnyAsync(u => u.PhoneNumber == normalizedPhone);
+        if (phoneExists) return ApiResponse<object>.Fail("Phone number already registered.");
+
+        var user = new ApplicationUser { UserName = dto.Email, Email = dto.Email, FullName = dto.FullName, PhoneNumber = normalizedPhone };
         var result = await _userManager.CreateAsync(user, dto.Password);
         if (!result.Succeeded) return ApiResponse<object>.Fail(result.Errors.First().Description);
         
@@ -95,14 +101,14 @@ public class AuthService : IAuthService {
                 await _roleManager.CreateAsync(new IdentityRole<Guid>(r));
         }
 
-        if (await _userManager.FindByEmailAsync("admin@vparts.com") == null) {
-            var admin = new ApplicationUser { UserName = "admin@vparts.com", Email = "admin@vparts.com", FullName = "System Admin" };
-            await _userManager.CreateAsync(admin, "Admin@123");
+        if (await _userManager.FindByEmailAsync("sagar.pandey@autoparts.com.np") == null) {
+            var admin = new ApplicationUser { UserName = "sagar.pandey@autoparts.com.np", Email = "sagar.pandey@autoparts.com.np", FullName = "Sagar Pandey" };
+            await _userManager.CreateAsync(admin, "AutoParts@2024");
             await _userManager.AddToRoleAsync(admin, "Admin");
         }
-        if (await _userManager.FindByEmailAsync("staff@vparts.com") == null) {
-            var staff = new ApplicationUser { UserName = "staff@vparts.com", Email = "staff@vparts.com", FullName = "Demo Staff" };
-            await _userManager.CreateAsync(staff, "Staff@123");
+        if (await _userManager.FindByEmailAsync("priya.maharjan@autoparts.com.np") == null) {
+            var staff = new ApplicationUser { UserName = "priya.maharjan@autoparts.com.np", Email = "priya.maharjan@autoparts.com.np", FullName = "Priya Maharjan" };
+            await _userManager.CreateAsync(staff, "Staff@2024");
             await _userManager.AddToRoleAsync(staff, "Staff");
         }
     }

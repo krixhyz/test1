@@ -35,6 +35,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers().AddJsonOptions(options => {
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
 });
+builder.Services.AddHttpClient();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddOpenApi();
@@ -74,9 +75,12 @@ builder.Services.AddAuthentication(options => {
 
 // Dependency Injection
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<InventoryService>();
 builder.Services.AddScoped<SalesService>();
 builder.Services.AddScoped<AiPredictionService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<ICreditReminderService, CreditReminderService>();
 
 builder.Services.AddCors(options => {
     options.AddPolicy("AllowAllOrigins", policy => {
@@ -107,6 +111,7 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope()) {
     var authService = scope.ServiceProvider.GetRequiredService<IAuthService>();
     await authService.SeedRolesAndAdminAsync();
+    await WeatherAPI.Infrastructure.Data.DataSeeder.SeedAsync(scope.ServiceProvider);
 }
 
 app.Run();
