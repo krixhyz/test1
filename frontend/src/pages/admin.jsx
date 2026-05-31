@@ -39,7 +39,7 @@ function AdminDashboard() {
           <div className="vp-section-title">Recent Notifications</div>
           <div className="vp-notif-list">
             {notifications.map(n => (
-              <div key={n.id} className={`vp-notif-item ${!n.read?'vp-unread':''}`}>
+              <div key={n.id} className={`vp-notif-item ${!n.isRead?'vp-unread':''}`}>
                 <div className="vp-notif-dot"></div>
                 <div>
                   <div className="vp-notif-title">{n.title}</div>
@@ -298,7 +298,7 @@ function VendorManagement() {
 
 function PartsManagement() {
   const [parts,setParts]=useState([]); const [vendors,setVendors]=useState([]); const [loading,setLoading]=useState(true);
-  const [search,setSearch]=useState(''); const [filterCat,setFilterCat]=useState('');
+  const [search,setSearch]=useState(''); const [filterCat,setFilterCat]=useState(''); const [showInactive,setShowInactive]=useState(false);
   const [modal,setModal]=useState(false); const [editing,setEditing]=useState(null); const [confirm,setConfirm]=useState(null);
   const [requests,setRequests]=useState([]); const [requestsLoading,setRequestsLoading]=useState(true); const [selectedRequest,setSelectedRequest]=useState(null);
   const {show,Toast}=useToast();
@@ -307,7 +307,12 @@ function PartsManagement() {
   useEffect(()=>{Promise.all([api.getParts(),api.getVendors()]).then(([p,v])=>{setParts(p);setVendors(v);}).finally(()=>setLoading(false));}, []);
   useEffect(()=>{api.getPartRequests().then(r=>setRequests(r.filter(x=>x.status==='Pending'))).finally(()=>setRequestsLoading(false));}, []);
   const cats=[...new Set(parts.map(p=>p.category))];
-  const filtered=parts.filter(p=>{const ms=[p.partName,p.partCode,p.category].some(v=>v?.toLowerCase().includes(search.toLowerCase()));const mc=!filterCat||p.category===filterCat;return ms&&mc;});
+  const filtered=parts.filter(p=>{
+    const ms=[p.partName,p.partCode,p.category].some(v=>v?.toLowerCase().includes(search.toLowerCase()));
+    const mc=!filterCat||p.category===filterCat;
+    const activeOk = showInactive ? true : p.isActive;
+    return ms && mc && activeOk;
+  });
   const set=k=>e=>setForm(f=>({...f,[k]:e.target.value}));
   const validate = () => {
     const e = {};
@@ -369,21 +374,53 @@ function PartsManagement() {
     {label:'Stock',render:p=><span style={{color:p.stockQty<=p.reorderLevel?'var(--error)':'var(--tx)',fontWeight:600}}>{p.stockQty}</span>},
     {label:'Status',render:p=><StatusBadge status={stockStatus(p)}/>},
     {label:'Vendor',key:'vendorName'},
-    {label:'Actions',render:p=>(
-      <div className="vp-action-btns">
-        <Button size="sm" variant="ghost" onClick={()=>{setEditing(p);setForm({...p});setErrors({});setModal(true);}}>Edit</Button>
-        <Button size="sm" variant="warning" onClick={()=>setConfirm(p)}>Deactivate</Button>
-      </div>
-    )},
+    {label:'Actions',render:p=>{
+      const vendor = vendors.find(v => v.id === p.vendorId);
+      const vendorActive = vendor ? vendor.isActive : true;
+      const showActivate = !p.isActive || !vendorActive;
+      return (
+        <div className="vp-action-btns">
+          <Button size="sm" variant="ghost" onClick={()=>{setEditing(p);setForm({...p});setErrors({});setModal(true);}}>Edit</Button>
+          {showActivate ? (
+            <Button size="sm" variant="success" onClick={async()=>{
+              try {
+                await api.updatePart(p.id, {
+                  partName: p.partName,
+                  partCode: p.partCode,
+                  category: p.category,
+                  description: p.description || '',
+                  unitPrice: p.unitPrice || 0,
+                  stockQuantity: p.stockQty || 0,
+                  reorderLevel: p.reorderLevel || 10,
+                  vendorId: p.vendorId || null,
+                  isActive: true,
+                });
+                const fresh = await api.getParts();
+                setParts(fresh);
+                show('Part activated');
+              } catch {
+                show('Failed to activate part','error');
+              }
+            }}>Activate</Button>
+          ) : (
+            <Button size="sm" variant="warning" onClick={()=>setConfirm(p)}>Deactivate</Button>
+          )}
+        </div>
+      );
+    }},
   ];
   return (
     <AdminLayout title="Parts Management">
       {Toast}
       <PageHeader title="Parts Management" subtitle={`${parts.length} parts`} action={<Button onClick={()=>{setEditing(null);setForm(empty);setErrors({});setModal(true);}}>Add Part</Button>}/>
       <Card>
-        <div className="vp-toolbar">
+        <div className="vp-toolbar" style={{alignItems:'center'}}>
           <SearchBar value={search} onChange={setSearch} placeholder="Search parts..."/>
           <select className="vp-input vp-filter-sel" value={filterCat} onChange={e=>setFilterCat(e.target.value)}><option value="">All Categories</option>{cats.map(c=><option key={c}>{c}</option>)}</select>
+          <label style={{display:'flex',alignItems:'center',gap:8,marginLeft:12,fontSize:13,color:'var(--muted)'}}>
+            <input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)} />
+            <span>Show inactive</span>
+          </label>
         </div>
         {loading?<Loader/>:<Table columns={cols} data={filtered} emptyMessage="No parts found."/>}
       </Card>
@@ -501,19 +538,38 @@ function PurchaseInvoices() {
         footer={<div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Button variant="ghost" onClick={()=>setModal(false)}>Cancel</Button><Button onClick={handleSave}>Create Invoice</Button></div>}>
         <FormRow><Select label="Vendor" required value={form.vendorId} onChange={set('vendorId')}><option value="">Select vendor</option>{vendors.filter(v=>v.status==='Active').map(v=><option key={v.id} value={v.id}>{v.vendorName}</option>)}</Select><Input label="Invoice Date" type="date" value={form.invoiceDate} onChange={set('invoiceDate')}/></FormRow>
         <div className="vp-invoice-items">
-          <div className="vp-invoice-header"><span style={{flex:3}}>Part</span><span style={{flex:1}}>Qty</span><span style={{flex:1}}>Unit Cost</span><span style={{flex:1}}>Total</span><span style={{width:36}}></span></div>
+          <div className="vp-invoice-header" style={{display:'flex',gap:12,alignItems:'center',padding:'6px 12px',borderBottom:'1px solid var(--border)',fontSize:13,color:'var(--muted)'}}>
+            <span style={{flex:3}}>Part</span>
+            <span style={{flex:1}}>Qty</span>
+            <span style={{flex:1}}>Unit Cost</span>
+            <span style={{flex:1,textAlign:'right'}}>Total</span>
+            <span style={{width:36}}></span>
+          </div>
           {items.map((item,i)=>(
-            <div key={i} className="vp-invoice-row">
-              <div style={{flex:3}}><select className="vp-input" value={item.partId} onChange={e=>setItem(i,'partId',e.target.value)}><option value="">Select part</option>{parts.map(p=><option key={p.id} value={p.id}>{p.partName} ({p.partCode})</option>)}</select></div>
-              <div style={{flex:1}}><input type="number" className="vp-input" value={item.quantity} min="1" onChange={e=>setItem(i,'quantity',e.target.value)}/></div>
-              <div style={{flex:1}}><input type="number" className="vp-input" value={item.unitCost} min="0" onChange={e=>setItem(i,'unitCost',e.target.value)}/></div>
-              <div style={{flex:1,fontWeight:600,color:'var(--tx)'}}>{formatCurrency(lineTotal(item))}</div>
-              <button className="vp-remove-row" onClick={()=>setItems(r=>r.filter((_,idx)=>idx!==i))}>×</button>
+            <div key={i} className="vp-invoice-row" style={{display:'flex',gap:12,alignItems:'center',padding:'10px 12px',borderBottom:'1px dashed var(--border)'}}>
+              <div style={{flex:3}}>
+                <Select value={item.partId} onChange={e=>setItem(i,'partId',e.target.value)} className="" >
+                  <option value="">Select part</option>
+                  {parts.map(p=> <option key={p.id} value={p.id}>{p.partName} ({p.partCode})</option>)}
+                </Select>
+              </div>
+              <div style={{flex:1}}>
+                <Input type="number" value={item.quantity} min="1" onChange={e=>setItem(i,'quantity',e.target.value)} />
+              </div>
+              <div style={{flex:1}}>
+                <Input type="number" value={item.unitCost} min="0" onChange={e=>setItem(i,'unitCost',e.target.value)} />
+              </div>
+              <div style={{flex:1,textAlign:'right',fontWeight:700,color:'var(--tx)'}}>{formatCurrency(lineTotal(item))}</div>
+              <div style={{width:36,display:'flex',justifyContent:'center'}}>
+                <Button size="sm" variant="ghost" onClick={()=>setItems(r=>r.filter((_,idx)=>idx!==i))}>×</Button>
+              </div>
             </div>
           ))}
-          <div style={{padding:'8px 12px'}}><Button size="sm" variant="ghost" onClick={()=>setItems(r=>[...r,{partId:'',quantity:1,unitCost:''}])}>+ Add Row</Button></div>
+          <div style={{padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <Button size="sm" variant="ghost" onClick={()=>setItems(r=>[...r,{partId:'',quantity:1,unitCost:''}])}>+ Add Row</Button>
+            <div style={{fontWeight:700}}>Grand Total: <span style={{marginLeft:8}}>{formatCurrency(grandTotal)}</span></div>
+          </div>
         </div>
-        <div className="vp-invoice-total">Grand Total: {formatCurrency(grandTotal)}</div>
         <Textarea label="Notes" value={form.notes} onChange={set('notes')} placeholder="Optional notes..." rows={2}/>
       </Modal>
     </AdminLayout>
@@ -647,44 +703,80 @@ function LowStockAlerts() {
   );
 }
 
+const NOTIF_TYPE_COLORS = {
+  LowStock:    { color: '#b45309', bg: '#fef3c7' },
+  CreditAlert: { color: '#b91c1c', bg: '#fee2e2' },
+  Request:     { color: '#6d28d9', bg: '#ede9fe' },
+  Review:      { color: '#065f46', bg: '#d1fae5' },
+  Appointment: { color: '#1d4ed8', bg: '#dbeafe' },
+  Email:       { color: '#4338ca', bg: '#e0e7ff' },
+  StockUpdate: { color: '#0f766e', bg: '#ccfbf1' },
+};
+
 function AdminNotifications() {
-  const [notifications,setNotifications]=useState([]); const [loading,setLoading]=useState(true);
-  useEffect(()=>{api.getNotifications().then(setNotifications).finally(()=>setLoading(false));}, []);
-  const markRead=async(id)=>{
-    try {
-      await api.markNotificationRead(id);
-      const fresh = await api.getNotifications();
-      setNotifications(fresh);
-    } catch {
-      // Keep UI responsive even if API fails
-      setNotifications(n=>n.map(x=>x.id===id?{...x,read:true}:x));
-    }
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    api.getNotifications().then(setNotifications).finally(() => setLoading(false));
   };
-  const typeColors={'Low Stock':'yellow','Credit Reminder':'orange','General':'blue'};
+  useEffect(load, []);
+
+  const markRead = async (id) => {
+    setNotifications(prev => prev.map(x => x.id === id ? { ...x, isRead: true } : x));
+    try { await api.markNotificationRead(id); } catch { load(); }
+  };
+
+  const markAllRead = async () => {
+    setMarkingAll(true);
+    setNotifications(prev => prev.map(x => ({ ...x, isRead: true })));
+    try { await api.markAllNotificationsRead(); } catch { load(); } finally { setMarkingAll(false); }
+  };
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
   return (
     <AdminLayout title="Notifications">
-      <PageHeader title="Notifications" subtitle={`${notifications.filter(n=>!n.read).length} unread`}
-        action={<Button variant="ghost" size="sm" onClick={async()=>{
-          const unread = notifications.filter(n=>!n.read);
-          for (const n of unread) {
-            await markRead(n.id);
-          }
-        }}>Mark all read</Button>}/>
+      <PageHeader title="Notifications" subtitle={`${unreadCount} unread`}
+        action={<Button variant="ghost" size="sm" onClick={markAllRead} disabled={markingAll}>
+          {markingAll ? 'Marking…' : 'Mark all read'}
+        </Button>}/>
       <Card>
-        {loading?<Loader/>:notifications.length===0?<EmptyState message="No notifications"/>:(
-          <div className="vp-notif-full-list">
-            {notifications.map(n=>(
-              <div key={n.id} className={`vp-notif-full-item ${!n.read?'vp-unread':''}`}>
-                <div className="vp-notif-full-left">
-                  <Badge color={typeColors[n.type]||'grey'}>{n.type}</Badge>
-                  <div className="vp-notif-full-title">{n.title}</div>
-                  <div className="vp-notif-full-msg">{n.message}</div>
-                  <div className="vp-notif-full-time">{formatDateTime(n.createdAt)}</div>
+        {loading ? <Loader /> : notifications.length === 0 ? <EmptyState message="No notifications" /> : (
+          notifications.map((n, i) => {
+            const tc = NOTIF_TYPE_COLORS[n.type] || { color: '#374151', bg: '#f3f4f6' };
+            return (
+              <div key={n.id} style={{
+                display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16,
+                padding: '14px 20px',
+                borderLeft: `3px solid ${n.isRead ? 'transparent' : 'var(--primary)'}`,
+                background: n.isRead ? 'transparent' : 'rgba(99,102,241,0.04)',
+                opacity: n.isRead ? 0.6 : 1,
+                borderBottom: i < notifications.length - 1 ? '1px solid var(--border)' : 'none',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+                      color: tc.color, background: tc.bg,
+                    }}>{n.type}</span>
+                    <span style={{ fontSize: 13, fontWeight: n.isRead ? 500 : 700, color: 'var(--tx)' }}>{n.title}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 4 }}>{n.message}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{formatDateTime(n.createdAt)}</div>
                 </div>
-                {!n.read&&<Button size="sm" variant="ghost" onClick={()=>markRead(n.id)}>Mark read</Button>}
+                {!n.isRead && (
+                  <button onClick={() => markRead(n.id)} style={{
+                    flexShrink: 0, padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+                    border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--muted)',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}>Mark read</button>
+                )}
               </div>
-            ))}
-          </div>
+            );
+          })
         )}
       </Card>
     </AdminLayout>
@@ -698,13 +790,12 @@ function EmailLogsPage(){
   const fetch=()=>{setLoading(true);api.getEmailLogs().then(setLogs).finally(()=>setLoading(false));};
   const fetchDev=()=>{setLoading(true);api.getDevEmailLogs().then(d=>setLogs(Array.isArray(d)?d:(d.data??[]))).finally(()=>setLoading(false));};
   useEffect(()=>{fetch();}, []);
-  const seed=async()=>{try{await api.seedEmailLogs();show('Seeded sample logs');fetch();}catch{show('Failed to seed','error');}}
-  const seedDev=async()=>{try{await api.seedDevEmailLogs();show('Seeded dev logs');fetchDev();}catch{show('Failed to seed dev logs','error');}}
+  
   const cols=[{label:'To',key:'toEmail'},{label:'Subject',key:'subject'},{label:'Status',key:'status'},{label:'Sent At',render:l=>formatDateTime(l.sentAt)},{label:'Invoice Id',key:'invoiceId'}];
   return (
     <AdminLayout title="Email Logs">
       {Toast}
-      <PageHeader title="Email Logs" subtitle="Recent email activity" action={<div style={{display:'flex',gap:8}}><Button onClick={seed}>Seed Sample</Button><Button variant="ghost" onClick={seedDev}>Seed Dev</Button><Button variant="outline" onClick={fetchDev}>Load Dev Logs</Button></div>} />
+      <PageHeader title="Email Logs" subtitle="Recent email activity" action={<div style={{display:'flex',gap:8}}><Button onClick={fetch}>Refresh</Button><Button variant="outline" onClick={fetchDev}>Load Dev Logs</Button></div>} />
       <Card style={{marginTop:16}}>{loading?<Loader/>:<Table columns={cols} data={logs} emptyMessage="No logs available."/>}</Card>
     </AdminLayout>
   );

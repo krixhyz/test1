@@ -366,26 +366,61 @@ function PartsSale() {
           <Select label="Payment Status" value={paymentStatus} onChange={e=>setPaymentStatus(e.target.value)}><option>Paid</option><option>Credit</option><option>Partial</option></Select>
           {(paymentStatus==='Credit'||paymentStatus==='Partial')&&<Input label="Credit Due Date" type="date" value={creditDueDate} onChange={e=>setCreditDueDate(e.target.value)} min={new Date().toLocaleDateString('en-CA')} required/>}
         </FormRow>
-        <div className="vp-invoice-items" style={{marginTop:16}}>
-          <div className="vp-invoice-header"><span style={{flex:3}}>Part</span><span style={{flex:1}}>In Stock</span><span style={{flex:1}}>Qty</span><span style={{flex:1}}>Unit Price</span><span style={{flex:1}}>Total</span><span style={{width:36}}></span></div>
+        {/* Items table */}
+        <div style={{marginTop:20,border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+          {/* Header */}
+          <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr 40px',gap:0,background:'var(--surface-2,#f9fafb)',borderBottom:'1px solid var(--border)',padding:'8px 14px'}}>
+            {['Part','In Stock','Qty','Unit Price','Total',''].map((h,i)=>(
+              <span key={i} style={{fontSize:12,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:.5}}>{h}</span>
+            ))}
+          </div>
+          {/* Rows */}
           {items.map((item,i)=>(
-            <div key={i} className="vp-invoice-row">
-              <div style={{flex:3}}><select className="vp-input" value={item.partId} onChange={e=>setItem(i,'partId',e.target.value)}><option value="">Select part</option>{parts.filter(p=>p.stockQty>0).map(p=><option key={p.id} value={p.id}>{p.partName} ({p.partCode})</option>)}</select></div>
-              <div style={{flex:1,color:item.partId&&item.availableStock<=item.quantity?'var(--error)':'var(--success)',fontWeight:600}}>{item.partId?item.availableStock:'—'}</div>
-              <div style={{flex:1}}><input type="number" className="vp-input" value={item.quantity} min="1" max={item.availableStock||999} onChange={e=>setItem(i,'quantity',e.target.value)}/></div>
-              <div style={{flex:1,color:'var(--tx2)'}}>{formatCurrency(item.unitPrice)}</div>
-              <div style={{flex:1,fontWeight:700,color:'var(--tx)'}}>{formatCurrency(item.lineTotal)}</div>
-              <button className="vp-remove-row" onClick={()=>setItems(r=>r.filter((_,idx)=>idx!==i))}>×</button>
+            <div key={i} style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr 40px',gap:0,alignItems:'center',padding:'10px 14px',borderBottom:'1px solid var(--border)',background:'var(--surface)'}}>
+              <div style={{paddingRight:8}}>
+                <select className="vp-input" value={item.partId} onChange={e=>setItem(i,'partId',e.target.value)} style={{width:'100%'}}>
+                  <option value="">Select part</option>
+                  {parts.filter(p=>p.stockQty>0).map(p=><option key={p.id} value={p.id}>{p.partName} ({p.partCode})</option>)}
+                </select>
+              </div>
+              <div style={{fontSize:13,fontWeight:600,color:item.partId&&item.availableStock<=item.quantity?'var(--error)':'var(--success)'}}>
+                {item.partId ? item.availableStock : '—'}
+              </div>
+              <div style={{paddingRight:8}}>
+                <input type="number" className="vp-input" value={item.quantity} min="1" max={item.availableStock||999} onChange={e=>setItem(i,'quantity',e.target.value)} style={{width:'100%'}}/>
+              </div>
+              <div style={{fontSize:13,color:'var(--muted)'}}>{formatCurrency(item.unitPrice)}</div>
+              <div style={{fontSize:13,fontWeight:700,color:'var(--tx)'}}>{formatCurrency(item.lineTotal)}</div>
+              <div style={{display:'flex',justifyContent:'center'}}>
+                <button onClick={()=>setItems(r=>r.filter((_,idx)=>idx!==i))} style={{width:28,height:28,borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontSize:16,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+              </div>
             </div>
           ))}
-          <div style={{padding:'8px 12px'}}><Button size="sm" variant="ghost" onClick={()=>setItems(r=>[...r,{partId:'',quantity:1,unitPrice:0,lineTotal:0,availableStock:0,partName:''}])}>+ Add Part</Button></div>
+          {/* Add row */}
+          <div style={{padding:'8px 14px',background:'var(--surface)'}}>
+            <Button size="sm" variant="ghost" onClick={()=>setItems(r=>[...r,{partId:'',quantity:1,unitPrice:0,lineTotal:0,availableStock:0,partName:''}])}>+ Add Part</Button>
+          </div>
         </div>
-        <div className="vp-sale-summary">
-          <div className="vp-total-row"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-          {discount>0&&<div className="vp-total-row vp-success-color"><span>Loyalty Discount (10% on purchase over Rs 5,000)</span><span>- {formatCurrency(discount)}</span></div>}
-          <div className="vp-total-row vp-total-final"><span>Final Total</span><span>{formatCurrency(finalTotal)}</span></div>
+
+        {/* Summary */}
+        <div style={{marginTop:16,display:'flex',flexDirection:'column',alignItems:'flex-end',gap:6}}>
+          <div style={{display:'flex',gap:32,fontSize:14,color:'var(--muted)'}}>
+            <span>Subtotal</span><span style={{minWidth:90,textAlign:'right'}}>{formatCurrency(subtotal)}</span>
+          </div>
+          {discount>0&&(
+            <div style={{display:'flex',gap:32,fontSize:13,color:'var(--success)',fontWeight:500}}>
+              <span>Loyalty Discount (10% on orders over Rs 5,000)</span><span style={{minWidth:90,textAlign:'right'}}>- {formatCurrency(discount)}</span>
+            </div>
+          )}
+          <div style={{display:'flex',gap:32,fontSize:16,fontWeight:700,color:'var(--tx)',borderTop:'1px solid var(--border)',paddingTop:8,marginTop:2}}>
+            <span>Final Total</span><span style={{minWidth:90,textAlign:'right'}}>{formatCurrency(finalTotal)}</span>
+          </div>
         </div>
-        <div className="vp-form-actions"><Button onClick={handleSubmit} size="lg">Complete Sale</Button><Button variant="ghost" onClick={()=>setItems([{partId:'',quantity:1,unitPrice:0,lineTotal:0,availableStock:0,partName:''}])}>Clear Items</Button></div>
+
+        <div className="vp-form-actions" style={{marginTop:20}}>
+          <Button onClick={handleSubmit} size="lg">Complete Sale</Button>
+          <Button variant="ghost" onClick={()=>setItems([{partId:'',quantity:1,unitPrice:0,lineTotal:0,availableStock:0,partName:''}])}>Clear Items</Button>
+        </div>
       </Card>
     </StaffLayout>
   );

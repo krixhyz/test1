@@ -310,6 +310,11 @@ function BookAppointment() {
   const [form,setForm]=useState({vehicleId:'',serviceType:'',date:'',time:'',description:''});
   const [errors,setErrors]=useState({});
   const {show,Toast}=useToast();
+  const todayInputValue = () => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().split('T')[0];
+  };
   const set=k=>e=>{
     setForm(f=>({...f,[k]:e.target.value}));
     setErrors(errs=>({...errs,[k]:''}));
@@ -326,27 +331,34 @@ function BookAppointment() {
   const validate=()=>{
     const e={};
     if(!form.vehicleId) e.vehicleId='Select a vehicle';
-    if(!form.serviceType) e.serviceType='Select service type';
+    if(!form.serviceType || !form.serviceType.trim()) e.serviceType='Select service type';
     if(!form.date) {
       e.date='Date is required';
     } else {
-      const selected = new Date(form.date);
+      const selected = new Date(`${form.date}T00:00:00`);
+      if (Number.isNaN(selected.getTime())) {
+        e.date = 'Enter a valid date';
+      }
       selected.setHours(0,0,0,0);
       const today = new Date();
       today.setHours(0,0,0,0);
-      if (selected < today) {
+      if (!e.date && selected < today) {
         e.date='Date cannot be in the past';
-      } else if (selected.getTime() === today.getTime() && form.time) {
+      } else if (!e.date && selected.getTime() === today.getTime() && form.time) {
         // If preferred date is today, check if selected time has already passed today
         const [hours, minutes] = form.time.split(':').map(Number);
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+          e.time = 'Enter a valid time';
+        }
         const selectedDateTime = new Date();
         selectedDateTime.setHours(hours, minutes, 0, 0);
-        if (selectedDateTime < new Date()) {
+        if (!e.time && selectedDateTime < new Date()) {
           e.time='Time cannot be in the past';
         }
       }
     }
     if(!form.time) e.time='Time is required';
+    if(form.description && form.description.trim().length > 500) e.description='Description must be 500 characters or less';
     return e;
   };
   const handleBook=async e=>{
@@ -387,7 +399,7 @@ function BookAppointment() {
               <Select label="Service Type" required value={form.serviceType} onChange={set('serviceType')} error={errors.serviceType}><option value="">Select service</option>{['General Service','Oil Change','Brake Inspection','Tire Change','Battery Check','AC Service','Engine Diagnostic','Other'].map(s=><option key={s}>{s}</option>)}</Select>
             </FormRow>
             <FormRow>
-              <Input label="Preferred Date" type="date" required value={form.date} onChange={set('date')} error={errors.date} min={new Date().toLocaleDateString('en-CA')}/>
+              <Input label="Preferred Date" type="date" required value={form.date} onChange={set('date')} error={errors.date} min={todayInputValue()}/>
               <Input label="Preferred Time" type="time" required value={form.time} onChange={set('time')} error={errors.time}/>
             </FormRow>
             <Textarea label="Description" value={form.description} onChange={set('description')} placeholder="Describe the issue or service needed..."/>
